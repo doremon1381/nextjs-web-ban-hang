@@ -1,7 +1,35 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
+  /* Typography System - 6 Core Sizes */
+  /* Font sizes - Mobile first, auto-responsive */
+  --font-size-4xl: 2.25rem;        /* 36px - Hero/Display (H1) */
+  --font-size-2xl: 1.5rem;         /* 24px - Headings (H2, H3) */
+  --font-size-lg: 1.125rem;        /* 18px - Lead text, emphasis */
+  --font-size-base: 1rem;          /* 16px - Body text */
+  --font-size-sm: 0.875rem;        /* 14px - Small text, buttons, labels */
+  --font-size-xs: 0.75rem;         /* 12px - Tiny text, badges, captions */
+
+  /* Line heights */
+  --line-height-tight: 1.25;       /* Large headings (4xl, 2xl) */
+  --line-height-normal: 1.5;       /* Body text (base, sm, xs) */
+  --line-height-relaxed: 1.75;     /* Lead text (lg) */
+
+  /* Font weights */
+  --font-weight-normal: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+
+  /* Letter spacing */
+  --letter-spacing-tight: -0.025em;
+  --letter-spacing-normal: 0;
+  --letter-spacing-wide: 0.025em;
+
+  /* Base font size */
   --font-size: 16px;
+
+  /* Colors */
   --background: #ffffff;
   --foreground: #1F2937;
   --card: #ffffff;
@@ -22,8 +50,6 @@
   --input: transparent;
   --input-background: #ffffff;
   --switch-background: #cbced4;
-  --font-weight-medium: 500;
-  --font-weight-normal: 400;
   --ring: #43A047;
   --chart-1: oklch(0.646 0.222 41.116);
   --chart-2: oklch(0.6 0.118 184.704);
@@ -45,6 +71,13 @@
   --green-dark: #1F5E3B;
   --cream-bg: #FFF8E7;
   --longan-yellow: #F4B942;
+}
+
+/* Desktop typography scale - Only hero size scales up */
+@media (min-width: 768px) {
+  :root {
+    --font-size-4xl: 3rem;           /* 48px (was 36px on mobile) */
+  }
 }
 
 .dark {
@@ -135,53 +168,53 @@
   }
 
   /**
-  * Default typography styles for HTML elements (h1-h4, p, label, button, input).
-  * These are in @layer base, so Tailwind utility classes (like text-sm, text-lg) automatically override them.
+  * Default typography styles for HTML elements.
+  * These are in @layer base, so Tailwind utility classes automatically override them.
   */
 
   html {
     font-size: var(--font-size);
   }
 
+  body {
+    font-size: var(--font-size-base);
+    line-height: var(--line-height-normal);
+    letter-spacing: var(--letter-spacing-normal);
+  }
+
   h1 {
-    font-size: var(--text-2xl);
-    font-weight: var(--font-weight-medium);
-    line-height: 1.5;
+    font-size: var(--font-size-4xl);
+    font-weight: var(--font-weight-semibold);
+    line-height: var(--line-height-tight);
+    letter-spacing: var(--letter-spacing-tight);
   }
 
-  h2 {
-    font-size: var(--text-xl);
-    font-weight: var(--font-weight-medium);
-    line-height: 1.5;
+  h2, h3 {
+    font-size: var(--font-size-2xl);
+    font-weight: var(--font-weight-semibold);
+    line-height: var(--line-height-tight);
   }
 
-  h3 {
-    font-size: var(--text-lg);
-    font-weight: var(--font-weight-medium);
-    line-height: 1.5;
-  }
-
-  h4 {
-    font-size: var(--text-base);
-    font-weight: var(--font-weight-medium);
-    line-height: 1.5;
+  p {
+    font-size: var(--font-size-base);
+    line-height: var(--line-height-normal);
   }
 
   label {
-    font-size: var(--text-base);
+    font-size: var(--font-size-sm);
     font-weight: var(--font-weight-medium);
-    line-height: 1.5;
+    line-height: var(--line-height-normal);
   }
 
   button {
-    font-size: var(--text-base);
+    font-size: var(--font-size-sm);
     font-weight: var(--font-weight-medium);
-    line-height: 1.5;
+    line-height: var(--line-height-normal);
   }
 
-  input {
-    font-size: var(--text-base);
+  input, textarea, select {
+    font-size: var(--font-size-base);
     font-weight: var(--font-weight-normal);
-    line-height: 1.5;
+    line-height: var(--line-height-normal);
   }
 }

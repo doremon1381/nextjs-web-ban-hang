@@ -4,7 +4,10 @@ import * as Dialog from '@radix-ui/react-dialog';
 
 interface CartItem {
   id: string;
+  productId: string;
+  variantId: string;
   name: string;
+  variantName: string;
   price: number;
   quantity: number;
   image: string;
@@ -106,6 +109,9 @@ export function CartModal({ isOpen, onClose, items, setItems, total }: CartModal
                           />
                           <div className="flex-1">
                             <h4 className="text-[#1F5E3B] text-sm mb-1">{item.name}</h4>
+                            {item.variantName && (
+                              <p className="text-xs text-[#6B7280] mb-1">Loại: {item.variantName}</p>
+                            )}
                             <p className="text-sm text-[#DC2626] mb-2">{formatPrice(item.price)} / {item.unit}</p>
                             <div className="flex items-center gap-3">
                               <div className="flex items-center gap-2 border border-[#E5E7EB] rounded-lg">
@@ -247,9 +253,38 @@ export function CartModal({ isOpen, onClose, items, setItems, total }: CartModal
                 </div>
 
                 <div className="border-t border-[#E5E7EB] pt-4 mb-4">
-                  <div className="flex justify-between mb-2">
-                    <span className="text-[#1F5E3B]">Tổng tiền</span>
-                    <span className="text-xl text-[#DC2626] font-semibold">{formatPrice(finalTotal)}</span>
+                  <h3 className="text-sm text-[#1F5E3B] font-medium mb-3">Đơn hàng của bạn</h3>
+                  <div className="space-y-2 mb-4">
+                    {items.map(item => (
+                      <div key={item.id} className="flex justify-between text-sm">
+                        <div className="flex-1">
+                          <p className="text-[#1F2937]">{item.name}</p>
+                          {item.variantName && (
+                            <p className="text-xs text-[#6B7280]">{item.variantName} x {item.quantity}</p>
+                          )}
+                          {!item.variantName && (
+                            <p className="text-xs text-[#6B7280]">Số lượng: {item.quantity}</p>
+                          )}
+                        </div>
+                        <span className="text-[#1F2937]">{formatPrice(item.price * item.quantity)}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="space-y-2 pt-3 border-t border-[#E5E7EB]">
+                    <div className="flex justify-between text-sm">
+                      <span className="text-[#6B7280]">Tạm tính</span>
+                      <span className="text-[#1F2937]">{formatPrice(total)}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-[#6B7280]">Phí giao hàng</span>
+                      <span className={shippingFee === 0 ? 'text-[#43A047]' : 'text-[#1F2937]'}>
+                        {shippingFee === 0 ? 'Miễn phí' : formatPrice(shippingFee)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between pt-2 border-t border-[#E5E7EB]">
+                      <span className="text-[#1F5E3B] font-medium">Tổng tiền</span>
+                      <span className="text-xl text-[#DC2626] font-semibold">{formatPrice(finalTotal)}</span>
+                    </div>
                   </div>
                 </div>
 

@@ -7,6 +7,7 @@ interface Order {
   status: 'pending' | 'confirmed' | 'shipping' | 'completed' | 'cancelled';
   items: {
     name: string;
+    variantName?: string;
     quantity: number;
     price: number;
   }[];
@@ -23,8 +24,8 @@ export function OrdersPage() {
       date: '2026-05-05',
       status: 'completed',
       items: [
-        { name: 'Nhãn lồng tươi loại 1 - 1kg', quantity: 2, price: 69000 },
-        { name: 'Nhãn sấy dẻo - 500g', quantity: 1, price: 125000 }
+        { name: 'Nhãn lồng tươi loại 1', variantName: '1kg', quantity: 2, price: 69000 },
+        { name: 'Nhãn sấy dẻo', variantName: '500g', quantity: 1, price: 125000 }
       ],
       total: 263000
     },
@@ -33,7 +34,7 @@ export function OrdersPage() {
       date: '2026-05-06',
       status: 'shipping',
       items: [
-        { name: 'Combo nhãn tươi + nhãn sấy', quantity: 1, price: 199000 }
+        { name: 'Combo nhãn tươi + nhãn sấy', variantName: 'Combo cơ bản', quantity: 1, price: 199000 }
       ],
       total: 199000
     },
@@ -42,8 +43,8 @@ export function OrdersPage() {
       date: '2026-05-07',
       status: 'pending',
       items: [
-        { name: 'Nhãn lồng tươi nguyên chùm - 2kg', quantity: 1, price: 135000 },
-        { name: 'Hộp quà nhãn sấy cao cấp', quantity: 1, price: 280000 }
+        { name: 'Nhãn lồng tươi nguyên chùm', variantName: '2kg (1 chùm)', quantity: 1, price: 135000 },
+        { name: 'Nhãn sấy dẻo', variantName: 'Hộp quà', quantity: 1, price: 280000 }
       ],
       total: 415000
     }
@@ -193,7 +194,11 @@ export function OrdersPage() {
                           <div key={idx} className="flex items-center justify-between py-3 border-b border-[#E5E7EB] last:border-0">
                             <div className="flex-1">
                               <p className="text-[#1F5E3B] font-medium">{item.name}</p>
+                              {item.variantName && (
+                                <p className="text-xs text-[#6B7280]">Loại: {item.variantName}</p>
+                              )}
                               <p className="text-sm text-[#6B7280]">Số lượng: {item.quantity}</p>
+                              <p className="text-sm text-[#6B7280]">Giá: {formatPrice(item.price)}</p>
                             </div>
                             <p className="text-[#1F5E3B] font-medium">{formatPrice(item.price * item.quantity)}</p>
                           </div>
@@ -274,10 +279,13 @@ export function OrdersPage() {
                 <h4 className="text-lg text-[#1F5E3B] mb-4">Sản phẩm</h4>
                 <div className="space-y-3">
                   {selectedOrder.items.map((item, idx) => (
-                    <div key={idx} className="flex justify-between items-center py-3 border-b border-[#E5E7EB] last:border-0">
-                      <div>
+                    <div key={idx} className="flex justify-between items-start py-3 border-b border-[#E5E7EB] last:border-0">
+                      <div className="flex-1">
                         <p className="text-[#1F5E3B] font-medium">{item.name}</p>
-                        <p className="text-sm text-[#6B7280]">x{item.quantity}</p>
+                        {item.variantName && (
+                          <p className="text-xs text-[#6B7280]">Loại: {item.variantName}</p>
+                        )}
+                        <p className="text-sm text-[#6B7280]">Số lượng: {item.quantity}</p>
                       </div>
                       <p className="text-[#1F5E3B] font-medium">{formatPrice(item.price * item.quantity)}</p>
                     </div>
