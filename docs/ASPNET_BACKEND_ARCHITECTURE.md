@@ -1,8 +1,33 @@
 ---
 title: ASP.NET Core Web API — Backend Architecture
-version: 1.2.0
+version: 1.3.0
 last_updated: 2026-05-13
 changelog:
+  - version: 1.3.0
+    date: 2026-05-13
+    changes:
+      - Fix JWT claim flattening — Supabase nested `app_metadata`/`user_metadata` claims are unpacked in OnTokenValidated, not accessed via dotted-paths
+      - Add `MapInboundClaims = false` so `FindFirst("sub")` works (otherwise remapped to NameIdentifier)
+      - Require asymmetric signing keys (RS256/ES256) in Supabase as a setup precondition — symmetric HS256 (legacy default) will not work with this Program.cs
+      - Add `ValidIssuers` array (with/without trailing slash) and bump ClockSkew to 60s
+      - Add explicit transaction + retry-on-OrderCode-conflict to `CreateOrderHandler`; document optimistic concurrency on ProductVariant.Stock
+      - Add `CancelOrderHandler` that restores stock atomically
+      - Add `OrderStatusHistory` entity definition (was referenced but undefined)
+      - Add `PagedResult<T>` definition and `Idempotency-Key` pattern on `POST /api/v1/orders`
+      - Fix `Product.OldPrice` to anchor to the same variant as `Price`
+      - Fix `Cart.MergeFrom` to require per-item stock context (no more `int.MaxValue` bypass)
+      - Move guest-cart session id from cookie to `X-NV-Session` header (drops CSRF surface; removes need for `AllowCredentials` in CORS)
+      - Add API versioning under `/api/v1/`
+      - Switch cart REST to identify items by `CartItemId` (not the productId/variantId composite)
+      - Add EF Core navigation field-access + decimal precision configuration for VND
+      - Move EF Core migrations out of app startup (separate deploy step / advisory-lock guard)
+      - Defer order-confirmation email via outbox (does not block order creation on SMTP)
+      - Remove `AspNetCoreRateLimit` from package list (use the in-box `Microsoft.AspNetCore.RateLimiting`)
+      - Remove unused `MediatR.Contracts` from Domain (no domain events in Phase 1)
+      - Drop Mapster from the stack table (manual extension-method mapping in use)
+      - Bump Phase 2 to 2 weeks for Supabase Auth integration nuances (Facebook provider review)
+      - Clarify avatars bucket policy (private + signed URLs) and add `SupabaseAdminService.DeleteUserAsync`
+      - Fix ER diagram typo (duplicate `CustomerPhone` → add `CustomerEmail`)
   - version: 1.2.0
     date: 2026-05-13
     changes:
@@ -93,7 +118,7 @@ The frontend currently uses:
 | **Auth** | Supabase Auth (JWT/RS256) — validated server-side via JWKS | Supabase handles registration, login, OAuth (Google, Facebook), token issuance. ASP.NET Core fetches Supabase's RSA public key via OIDC discovery (JWKS) and cryptographically verifies token signatures. No ASP.NET Core Identity needed. |
 | **OAuth Providers** | Google, Facebook (configured in Supabase dashboard) | Social login via Supabase's built-in OAuth flow — zero provider code in .NET |
 | **Validation** | FluentValidation | Expressive, testable validation rules |
-| **Mapping** | Mapster or manual mapping | Lightweight, AOT-friendly |
+| **Mapping** | Manual extension methods (`ToDto()`) | Explicit, debuggable, no extra dependency. Mapster/AutoMapper can be added later if mapping surface grows. |
 | **Logging** | Serilog + Seq (or Application Insights) | Structured logging |
 | **Caching** | _Deferred_ — direct DB queries for now | Will add IMemoryCache / Redis in a future phase |
 | **File Storage** | Supabase Storage | Product images stored in Supabase buckets, served via Supabase CDN URLs |
@@ -129,13 +154,13 @@ NhanViet/
 ├── NhanViet.sln
 │
 ├── src/
-│   ├── NhanViet.Domain/                    # Entities, Value Objects, Domain Events
+│   ├── NhanViet.Domain/                    # Entities, Value Objects
 │   │   ├── Entities/
 │   │   ├── ValueObjects/
 │   │   ├── Enums/
-│   │   ├── Events/
 │   │   ├── Exceptions/
 │   │   └── Interfaces/                     # Repository interfaces (domain ports)
+│   │   # Domain Events deferred — add `Events/` folder + dispatcher when first cross-aggregate concern arises
 │   │
 │   ├── NhanViet.Application/               # Use Cases, DTOs, Validators
 │   │   ├── Common/
@@ -215,7 +240,7 @@ Api → Application → Domain
 Infrastructure (implements Application interfaces)
 ```
 
-- **Domain** depends on nothing (pure C#, no NuGet packages except maybe `MediatR.Contracts`)
+- **Domain** depends on nothing — pure C#, zero NuGet packages (no `MediatR.Contracts` until domain events are introduced)
 - **Application** depends on Domain
 - **Infrastructure** depends on Application + Domain (implements interfaces)
 - **Api** depends on all layers (composition root)
@@ -255,15 +280,14 @@ public class Product
     public IReadOnlyCollection<ProductVariant> Variants => _variants.AsReadOnly();
     private readonly List<ProductVariant> _variants = [];
 
-    // Domain method: compute the display price (min variant price)
-    public decimal Price => _variants.Count > 0
-        ? _variants.Min(v => v.Price)
-        : 0;
+    // Display price + matching OldPrice anchored to the SAME (cheapest) variant.
+    // Computing them independently produces inconsistent "from X (was Y)" strings.
+    private ProductVariant? Anchor => _variants.Count > 0
+        ? _variants.OrderBy(v => v.Price).First()
+        : null;
 
-    public decimal? OldPrice => _variants
-        .Where(v => v.OldPrice.HasValue)
-        .Select(v => v.OldPrice)
-        .FirstOrDefault();
+    public decimal Price => Anchor?.Price ?? 0;
+    public decimal? OldPrice => Anchor?.OldPrice;
 }
 ```
 
@@ -368,14 +392,20 @@ public class Cart
         UpdatedAt = DateTime.UtcNow;
     }
 
-    public void MergeFrom(Cart guest)
+    // Merge a guest cart into this (user-owned) cart.
+    // `currentStockByVariant` must be supplied by the caller from a fresh DB load —
+    // we refuse to silently exceed available stock during the merge.
+    public void MergeFrom(Cart guest, IReadOnlyDictionary<Guid, int> currentStockByVariant)
     {
         foreach (var item in guest.Items)
         {
+            if (!currentStockByVariant.TryGetValue(item.VariantId, out var stock))
+                continue; // variant no longer exists — drop silently
+
             var existing = _items.FirstOrDefault(i =>
                 i.ProductId == item.ProductId && i.VariantId == item.VariantId);
             if (existing is not null)
-                existing.UpdateQuantity(existing.Quantity + item.Quantity, int.MaxValue);
+                existing.UpdateQuantity(existing.Quantity + item.Quantity, stock);
             else
                 _items.Add(item);
         }
@@ -570,6 +600,18 @@ public class OrderItem
 ```
 
 ```csharp
+// NhanViet.Domain/Entities/OrderStatusHistory.cs
+public class OrderStatusHistory
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public Guid OrderId { get; set; }
+    public OrderStatus Status { get; set; }
+    public DateTime Timestamp { get; set; }
+    public string? Reason { get; set; }
+}
+```
+
+```csharp
 // NhanViet.Domain/Entities/ContactMessage.cs
 public class ContactMessage
 {
@@ -743,8 +785,30 @@ public interface IFileStorageService
 public interface ICurrentUserService
 {
     Guid? UserId { get; }
+    string? Email { get; }
+    string? AuthProvider { get; }
     bool IsAuthenticated { get; }
     bool IsAdmin { get; }
+}
+
+// NhanViet.Application/Common/Interfaces/IIdempotencyStore.cs
+// Backed by a Postgres table `idempotency_keys (key TEXT PK, response JSONB, created_at TIMESTAMPTZ)`.
+// 24-hour TTL via a periodic cleanup job.
+public interface IIdempotencyStore
+{
+    Task<string?> TryGetAsync(string key, CancellationToken ct = default);
+    Task SaveAsync(string key, string responseJson, CancellationToken ct = default);
+}
+
+// NhanViet.Application/Common/Models/PagedResult.cs
+public record PagedResult<T>(
+    IReadOnlyList<T> Items,
+    int TotalCount,
+    int Page,
+    int PageSize
+)
+{
+    public int TotalPages => (int)Math.Ceiling(TotalCount / (double)PageSize);
 }
 ```
 
@@ -868,47 +932,136 @@ public class CreateOrderValidator : AbstractValidator<CreateOrderCommand>
 }
 
 public class CreateOrderHandler(
+    NhanVietDbContext db,                  // for transaction control + raw SQL fallback
     ICartRepository carts,
     IOrderRepository orders,
     IProductRepository products,
     ICurrentUserService currentUser,
     IShippingCalculator shipping,
-    IUnitOfWork uow,
-    IEmailSender email
+    IIdempotencyStore idempotency,
+    IBackgroundJobQueue jobs,              // deferred email — see §11.6
+    IHttpContextAccessor http
 ) : IRequestHandler<CreateOrderCommand, OrderDto>
 {
     public async Task<OrderDto> Handle(CreateOrderCommand req, CancellationToken ct)
     {
-        var cart = currentUser.IsAuthenticated
-            ? await carts.GetByUserIdAsync(currentUser.UserId!.Value, ct)
-            : throw new ValidationException("Cart not found");
+        // ── Idempotency (clients pass `Idempotency-Key` header to make POSTs safely retryable)
+        var idemKey = http.HttpContext?.Request.Headers["Idempotency-Key"].ToString();
+        if (!string.IsNullOrEmpty(idemKey))
+        {
+            var cached = await idempotency.TryGetAsync(idemKey, ct);
+            if (cached is not null)
+                return JsonSerializer.Deserialize<OrderDto>(cached)!;
+        }
 
+        if (!currentUser.IsAuthenticated)
+            throw new UnauthorizedAccessException();
+
+        var cart = await carts.GetByUserIdAsync(currentUser.UserId!.Value, ct);
         if (cart is null || cart.Items.Count == 0)
             throw new ValidationException("Giỏ hàng trống");
 
-        // Validate stock and deduct
+        // ── Single atomic transaction: stock decrement, order insert, cart clear.
+        // Variant rows are locked FOR UPDATE so concurrent checkouts can't oversell.
+        // (Optimistic alternative: add an xmin row-version on ProductVariant — see §11.3.)
+        await using var tx = await db.Database.BeginTransactionAsync(ct);
+
+        var variantIds = cart.Items.Select(i => i.VariantId).ToList();
+        var variants = await db.ProductVariants
+            .FromSqlInterpolated($@"
+                SELECT * FROM ""ProductVariants""
+                WHERE ""Id"" = ANY({variantIds})
+                FOR UPDATE")
+            .ToDictionaryAsync(v => v.Id, ct);
+
         foreach (var item in cart.Items)
         {
-            var product = await products.GetByIdAsync(item.ProductId, ct)
-                ?? throw new NotFoundException(nameof(Product), item.ProductId);
-            var variant = product.Variants.First(v => v.Id == item.VariantId);
+            if (!variants.TryGetValue(item.VariantId, out var variant))
+                throw new NotFoundException(nameof(ProductVariant), item.VariantId);
             variant.DeductStock(item.Quantity);
         }
 
         var shippingFee = shipping.Calculate(cart.Subtotal);
 
-        var order = Order.CreateFromCart(
-            cart, req.CustomerName, req.CustomerPhone, req.CustomerEmail,
-            req.ShippingAddress, req.PaymentMethod, req.Note, shippingFee);
+        // Retry order-code generation on the rare unique-violation.
+        Order order = null!;
+        for (var attempt = 0; attempt < 5; attempt++)
+        {
+            order = Order.CreateFromCart(
+                cart, req.CustomerName, req.CustomerPhone, req.CustomerEmail,
+                req.ShippingAddress, req.PaymentMethod, req.Note, shippingFee);
+            try
+            {
+                await orders.AddAsync(order, ct);
+                cart.Clear();
+                await db.SaveChangesAsync(ct);
+                break;
+            }
+            catch (DbUpdateException ex) when (IsUniqueViolation(ex, "OrderCode") && attempt < 4)
+            {
+                db.ChangeTracker.Clear();   // discard the failed order, retry with a new code
+            }
+        }
 
-        await orders.AddAsync(order, ct);
-        cart.Clear();
-        await uow.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
 
+        // Email is fire-and-forget via the job queue (SMTP outage cannot fail an order).
         if (req.CustomerEmail is not null)
-            await email.SendOrderConfirmationAsync(req.CustomerEmail, order.OrderCode, order.Total);
+            jobs.Enqueue(new SendOrderConfirmationJob(req.CustomerEmail, order.OrderCode, order.Total));
 
-        return order.ToDto();
+        var dto = order.ToDto();
+        if (!string.IsNullOrEmpty(idemKey))
+            await idempotency.SaveAsync(idemKey, JsonSerializer.Serialize(dto), ct);
+        return dto;
+    }
+
+    private static bool IsUniqueViolation(DbUpdateException ex, string columnHint) =>
+        ex.InnerException is Npgsql.PostgresException pg
+        && pg.SqlState == "23505"
+        && pg.ConstraintName?.Contains(columnHint, StringComparison.OrdinalIgnoreCase) == true;
+}
+```
+
+### 5.4a Cancel Order (restores stock)
+
+```csharp
+// NhanViet.Application/Orders/Commands/CancelOrder.cs
+public record CancelOrderCommand(Guid OrderId, string? Reason) : IRequest<Unit>;
+
+public class CancelOrderHandler(
+    NhanVietDbContext db,
+    IOrderRepository orders,
+    ICurrentUserService currentUser
+) : IRequestHandler<CancelOrderCommand, Unit>
+{
+    public async Task<Unit> Handle(CancelOrderCommand req, CancellationToken ct)
+    {
+        await using var tx = await db.Database.BeginTransactionAsync(ct);
+
+        var order = await orders.GetByIdAsync(req.OrderId, ct)
+            ?? throw new NotFoundException(nameof(Order), req.OrderId);
+
+        // Customers can cancel only their own pending orders; admin policy enforced at API layer.
+        if (!currentUser.IsAdmin && order.UserId != currentUser.UserId)
+            throw new UnauthorizedAccessException();
+
+        // Lock variant rows before restoring stock so we can't race with concurrent orders.
+        var variantIds = order.Items.Select(i => i.VariantId).ToList();
+        var variants = await db.ProductVariants
+            .FromSqlInterpolated($@"
+                SELECT * FROM ""ProductVariants""
+                WHERE ""Id"" = ANY({variantIds})
+                FOR UPDATE")
+            .ToDictionaryAsync(v => v.Id, ct);
+
+        foreach (var item in order.Items)
+            if (variants.TryGetValue(item.VariantId, out var v))
+                v.RestoreStock(item.Quantity);
+
+        order.Cancel(req.Reason);
+        await db.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
+        return Unit.Value;
     }
 }
 ```
@@ -1068,6 +1221,10 @@ public class NhanVietDbContext(DbContextOptions<NhanVietDbContext> options)
         // Supabase reserves "auth", "storage", "realtime" schemas — do not touch those.
         builder.HasDefaultSchema("public");
 
+        // Entities expose private setters and backing fields (_variants, _items, _statusHistory).
+        // Force EF to use the backing fields so navigations populate without setter access errors.
+        builder.UsePropertyAccessMode(PropertyAccessMode.Field);
+
         builder.ApplyConfigurationsFromAssembly(typeof(NhanVietDbContext).Assembly);
     }
 }
@@ -1122,11 +1279,42 @@ public class ProductConfiguration : IEntityTypeConfiguration<Product>
             .HasForeignKey(v => v.ProductId)
             .OnDelete(DeleteBehavior.Cascade);
 
+        // Force EF to materialize the collection via the _variants backing field
+        // (Product exposes Variants as IReadOnlyCollection over _variants).
+        builder.Navigation(p => p.Variants)
+            .UsePropertyAccessMode(PropertyAccessMode.Field)
+            .HasField("_variants");
+
         builder.HasIndex(p => p.Category);
         builder.HasIndex(p => p.Featured);
         builder.HasIndex(p => p.IsActive);
     }
 }
+```
+
+```csharp
+// NhanViet.Infrastructure/Data/Configurations/ProductVariantConfiguration.cs
+public class ProductVariantConfiguration : IEntityTypeConfiguration<ProductVariant>
+{
+    public void Configure(EntityTypeBuilder<ProductVariant> builder)
+    {
+        builder.HasKey(v => v.Id);
+        builder.Property(v => v.Name).HasMaxLength(100).IsRequired();
+
+        // VND has no fractional unit. Lock precision to (18, 0) so EF stops generating numeric(18,2).
+        builder.Property(v => v.Price).HasPrecision(18, 0);
+        builder.Property(v => v.OldPrice).HasPrecision(18, 0);
+
+        // Optimistic concurrency on Stock so concurrent checkouts can't oversell when
+        // a code path skips the explicit `FOR UPDATE` lock used in CreateOrderHandler.
+        builder.UseXminAsConcurrencyToken();
+    }
+}
+
+// Apply HasPrecision(18, 0) on every monetary column:
+//   Order.Subtotal / ShippingFee / Total
+//   CartItem.UnitPrice / OrderItem.UnitPrice
+// (Configurations omitted for brevity — pattern is identical.)
 ```
 
 ### 6.3 Data Seeder
@@ -1184,9 +1372,13 @@ public class ProductRepository(NhanVietDbContext db) : IProductRepository
             query = query.Where(p => p.Featured == filter.Featured.Value);
 
         if (!string.IsNullOrWhiteSpace(filter.Search))
+        {
+            // NOTE: Leading-wildcard ILIKE cannot use a btree index — fine at 12 products,
+            // but switch to a pg_trgm GIN index or a tsvector column once the catalog grows.
             query = query.Where(p =>
                 EF.Functions.ILike(p.Name, $"%{filter.Search}%") ||
                 EF.Functions.ILike(p.Description, $"%{filter.Search}%"));
+        }
 
         var total = await query.CountAsync(ct);
 
@@ -1265,87 +1457,92 @@ builder.Services.AddDbContext<NhanVietDbContext>(options =>
 //
 // Keys are cached and auto-refreshed — no manual key management required.
 
-var supabaseUrl = builder.Configuration["Supabase:Url"]!;
+var supabaseUrl = builder.Configuration["Supabase:Url"]
+    ?? throw new InvalidOperationException("Supabase:Url is not configured.");
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
-        // Step 1: Point to Supabase's OIDC discovery endpoint.
-        // The middleware will GET {Authority}/.well-known/openid-configuration
-        // which returns the JWKS URI, supported algorithms, issuer, etc.
+        // ── PRECONDITION ────────────────────────────────────────────────────────
+        // Supabase JWTs default to HS256 (symmetric). This pipeline only works
+        // when the project is switched to asymmetric signing keys (RS256 or ES256)
+        // in Supabase → Auth → JWT Keys. See the Setup Checklist in Appendix B.
+        //
+        // CRITICAL: do NOT remap inbound claim names. Without this, "sub" gets
+        // rewritten to ClaimTypes.NameIdentifier and `FindFirst("sub")` returns null
+        // everywhere in the app (CurrentUserService, OnTokenValidated, etc.).
+        options.MapInboundClaims = false;
+
+        // Step 1: OIDC discovery — middleware fetches
+        // {Authority}/.well-known/openid-configuration → jwks_uri.
         options.Authority = $"{supabaseUrl}/auth/v1";
 
-        // Step 2-3: The middleware automatically fetches the JWKS (RSA public keys)
-        // from the URI discovered in step 1. No manual key configuration needed.
-        // Keys are cached in memory and refreshed when a token has an unknown "kid".
-
-        // Step 4-5: Configure what to validate after signature verification.
         options.TokenValidationParameters = new TokenValidationParameters
         {
-            // Validate issuer matches Supabase's auth endpoint
+            // Supabase has emitted both "…/auth/v1" and "…/auth/v1/" (trailing slash)
+            // depending on project version — accept both rather than chasing flaky 401s.
             ValidateIssuer = true,
-            ValidIssuer = $"{supabaseUrl}/auth/v1",
+            ValidIssuers = new[] { $"{supabaseUrl}/auth/v1", $"{supabaseUrl}/auth/v1/" },
 
-            // Validate audience — Supabase sets "aud" to "authenticated" for logged-in users
             ValidateAudience = true,
             ValidAudience = "authenticated",
 
-            // Validate token hasn't expired (checks "exp" claim against current UTC time)
             ValidateLifetime = true,
-            ClockSkew = TimeSpan.FromSeconds(30),  // tight skew for security
+            ClockSkew = TimeSpan.FromSeconds(60),    // 30s caused spurious 401s without strict NTP
 
-            // Validate the RSA signature — the signing key is fetched from JWKS (step 2-3)
             ValidateIssuerSigningKey = true,
-            // IssuerSigningKey is NOT set manually — it comes from JWKS discovery
+            // IssuerSigningKey arrives from JWKS — never set manually.
 
-            // Map Supabase's "sub" claim to ClaimTypes.NameIdentifier
             NameClaimType = "sub",
         };
 
-        // Disable HTTPS metadata requirement in development (Supabase CLI runs on HTTP)
         if (builder.Environment.IsDevelopment())
-        {
             options.RequireHttpsMetadata = false;
-        }
 
-        // Step 6: After successful validation, HttpContext.User.Claims contains all JWT claims.
-        // The OnTokenValidated event fires after the signature is verified and all validations pass.
         options.Events = new JwtBearerEvents
         {
-            OnTokenValidated = async context =>
+            // Flatten Supabase's nested `app_metadata` / `user_metadata` claims so
+            // policies and ICurrentUserService can use simple FindFirst("role") /
+            // FindFirst("provider") lookups. Without this, FindFirst("app_metadata.role")
+            // returns null because nested JSON is NOT auto-flattened by JwtBearer.
+            OnTokenValidated = context =>
             {
-                // Auto-provision AppUser row on first API call from a new Supabase user
-                var db = context.HttpContext.RequestServices.GetRequiredService<NhanVietDbContext>();
-                var userId = Guid.Parse(context.Principal!.FindFirst("sub")!.Value);
-                var email = context.Principal.FindFirst("email")?.Value ?? "";
-                var provider = context.Principal.FindFirst("app_metadata.provider")?.Value ?? "email";
-
-                if (!await db.AppUsers.AnyAsync(u => u.Id == userId))
-                {
-                    db.AppUsers.Add(new AppUser
-                    {
-                        Id = userId,
-                        Email = email,
-                        FullName = context.Principal.FindFirst("user_metadata.full_name")?.Value ?? "",
-                        AuthProvider = provider,
-                        AvatarUrl = context.Principal.FindFirst("user_metadata.avatar_url")?.Value,
-                        CreatedAt = DateTime.UtcNow,
-                    });
-                    await db.SaveChangesAsync();
-                }
+                var identity = (ClaimsIdentity)context.Principal!.Identity!;
+                FlattenJsonClaim(identity, "app_metadata", prefix: "");
+                FlattenJsonClaim(identity, "user_metadata", prefix: "");
+                return Task.CompletedTask;
             }
         };
+
+        // AppUser auto-provisioning has been moved OUT of the auth pipeline into a
+        // dedicated middleware (UserProvisioningMiddleware below) that:
+        //   1. Doesn't fail unauthenticated requests when the DB is down
+        //   2. Uses INSERT … ON CONFLICT DO NOTHING (no AnyAsync→Add race)
     });
 
-// Authorization policies
+static void FlattenJsonClaim(ClaimsIdentity identity, string sourceClaim, string prefix)
+{
+    var raw = identity.FindFirst(sourceClaim)?.Value;
+    if (string.IsNullOrEmpty(raw)) return;
+    using var doc = JsonDocument.Parse(raw);
+    foreach (var prop in doc.RootElement.EnumerateObject())
+    {
+        var value = prop.Value.ValueKind switch
+        {
+            JsonValueKind.String => prop.Value.GetString(),
+            JsonValueKind.Number => prop.Value.GetRawText(),
+            JsonValueKind.True or JsonValueKind.False => prop.Value.GetRawText(),
+            _ => prop.Value.GetRawText(),
+        };
+        if (value is not null)
+            identity.AddClaim(new Claim($"{prefix}{prop.Name}", value));
+    }
+}
+
+// Authorization policies — read flattened "role" claim (set above by FlattenJsonClaim).
 builder.Services.AddAuthorizationBuilder()
     .AddPolicy("AdminOnly", policy =>
-        policy.RequireAssertion(ctx =>
-        {
-            // Check custom app_metadata.role claim set via Supabase Admin API
-            var roleClaim = ctx.User.FindFirst("app_metadata.role")?.Value;
-            return roleClaim == "Admin";
-        }));
+        policy.RequireAssertion(ctx => ctx.User.FindFirst("role")?.Value == "Admin"));
 
 // Repositories & services (no caching — direct DB queries for now)
 builder.Services.AddScoped<IProductRepository, ProductRepository>();
@@ -1358,16 +1555,18 @@ builder.Services.AddScoped<IEmailSender, SmtpEmailSender>();
 builder.Services.AddScoped<IFileStorageService, SupabaseStorageService>();
 builder.Services.AddHttpClient<ISupabaseAdminService, SupabaseAdminService>();
 
-// CORS
+// CORS — no AllowCredentials. The guest-cart session id travels as the
+// `X-NV-Session` request header (see §13), not a cookie, so credentialed CORS
+// (with its SameSite/Secure/CSRF caveats) is unnecessary.
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("Frontend", policy =>
     {
         policy.WithOrigins(
-                builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()!)
+                builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [])
             .AllowAnyHeader()
             .AllowAnyMethod()
-            .AllowCredentials();
+            .WithExposedHeaders("X-NV-Session");
     });
 });
 
@@ -1393,19 +1592,53 @@ if (app.Environment.IsDevelopment())
 app.UseMiddleware<ExceptionHandlingMiddleware>();
 app.UseCors("Frontend");
 app.UseAuthentication();
+app.UseMiddleware<UserProvisioningMiddleware>();  // upserts AppUser row, idempotently
 app.UseAuthorization();
 app.UseRateLimiter();
 app.MapControllers();
 
-// Seed data (runs EF Core migrations against Supabase PostgreSQL)
-using (var scope = app.Services.CreateScope())
-{
-    var db = scope.ServiceProvider.GetRequiredService<NhanVietDbContext>();
-    await db.Database.MigrateAsync();
-    await ProductSeeder.SeedAsync(db);
-}
+// IMPORTANT: migrations and seeding do NOT run on startup.
+// They are executed by a dedicated CI job (`dotnet ef database update`) or a
+// one-shot migrator container that finishes before traffic shifts to the new
+// version. This avoids the multi-replica startup race and makes rollbacks safe.
+// See §16 Deployment → "Migrations".
 
 app.Run();
+```
+
+```csharp
+// NhanViet.Api/Middleware/UserProvisioningMiddleware.cs
+// Runs AFTER UseAuthentication so HttpContext.User is populated.
+// Idempotent upsert: no AnyAsync→Add race, no 500 on duplicate first-request.
+// If the DB is unreachable, this middleware logs and continues — auth itself
+// has already succeeded against Supabase, so unrelated read endpoints can still serve.
+public class UserProvisioningMiddleware(RequestDelegate next, ILogger<UserProvisioningMiddleware> logger)
+{
+    public async Task InvokeAsync(HttpContext ctx, NhanVietDbContext db)
+    {
+        if (ctx.User.Identity?.IsAuthenticated == true
+            && Guid.TryParse(ctx.User.FindFirst("sub")?.Value, out var userId))
+        {
+            try
+            {
+                var email = ctx.User.FindFirst("email")?.Value ?? "";
+                var fullName = ctx.User.FindFirst("full_name")?.Value ?? "";   // from flattened user_metadata
+                var avatar = ctx.User.FindFirst("avatar_url")?.Value;
+                var provider = ctx.User.FindFirst("provider")?.Value ?? "email";
+
+                await db.Database.ExecuteSqlInterpolatedAsync($@"
+                    INSERT INTO public.app_users (id, email, full_name, avatar_url, auth_provider, role, created_at)
+                    VALUES ({userId}, {email}, {fullName}, {avatar}, {provider}, 'Customer', NOW())
+                    ON CONFLICT (id) DO NOTHING;");
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "AppUser provisioning failed for {UserId}", userId);
+            }
+        }
+        await next(ctx);
+    }
+}
 ```
 
 > **Note on caching:** No caching layer is configured. All queries hit Supabase PostgreSQL directly. This is intentional for the initial launch — the product catalog is small (~12 products) and Supabase connection pooling (Supavisor) handles concurrent connections efficiently. A caching layer (IMemoryCache or Redis) will be added in a future phase when traffic warrants it.
@@ -1424,7 +1657,7 @@ app.Run();
 │  Email       │       │  Total           │
 │  Role        │       │  CustomerName    │
 │  AuthProvider│       │  CustomerPhone   │
-└──────┬───────┘       │  CustomerPhone   │
+└──────┬───────┘       │  CustomerEmail   │
        │               │  ShippingAddress │
        │ 1:1           │  PaymentMethod   │
        │               └───────┬──────────┘
@@ -1472,19 +1705,34 @@ app.Run();
 | Orders | CreatedAt | Descending |
 | Carts | UserId | Unique (where not null) |
 | Carts | SessionId | Unique (where not null) |
+| IdempotencyKeys | Key | Primary key (24h TTL via daily cleanup job) |
+
+### Cross-schema FK to `auth.users`
+
+`public.app_users.Id` must equal `auth.users.id`. EF Core can't model this (it doesn't see the `auth` schema), so add a raw-SQL migration:
+
+```sql
+ALTER TABLE public.app_users
+    ADD CONSTRAINT fk_app_users_auth
+    FOREIGN KEY (id) REFERENCES auth.users(id) ON DELETE CASCADE;
+```
+
+Deleting a Supabase auth user (via `SupabaseAdminService.DeleteUserAsync` or the dashboard) then cascades to `app_users`, then to `orders` / `carts` via their existing FKs.
 
 ---
 
 ## 9. API Endpoints
 
+All routes are versioned under `/api/v1/`. JSON serialization uses **camelCase** property names (STJ default — do not override `PropertyNamingPolicy`). Error responses follow RFC 7807 `application/problem+json` (see §12).
+
 ### 9.1 Products (public)
 
 | Method | Route | Description | Auth |
 |---|---|---|---|
-| GET | `/api/products` | List products (paginated, filterable) | No |
-| GET | `/api/products/{slug}` | Get product detail by slug | No |
-| GET | `/api/products/slugs` | Get all slugs (for SSG) | No |
-| GET | `/api/products/featured` | Get featured products | No |
+| GET | `/api/v1/products` | List products (paginated, filterable) | No |
+| GET | `/api/v1/products/{slug}` | Get product detail by slug | No |
+| GET | `/api/v1/products/slugs` | Get all slugs (for SSG) | No |
+| GET | `/api/v1/products/featured` | Get featured products | No |
 
 **Query parameters for `GET /api/products`:**
 - `category` — `fresh`, `dried`, `combo`
@@ -1523,22 +1771,22 @@ app.Run();
 
 | Method | Route | Description | Auth |
 |---|---|---|---|
-| GET | `/api/cart` | Get current cart | Optional* |
-| POST | `/api/cart/items` | Add item to cart | Optional* |
-| PUT | `/api/cart/items/{productId}/{variantId}` | Update quantity | Optional* |
-| DELETE | `/api/cart/items/{productId}/{variantId}` | Remove item | Optional* |
-| DELETE | `/api/cart` | Clear cart | Optional* |
+| GET | `/api/v1/cart` | Get current cart | Optional* |
+| POST | `/api/v1/cart/items` | Add item to cart | Optional* |
+| PUT | `/api/v1/cart/items/{cartItemId}` | Update quantity | Optional* |
+| DELETE | `/api/v1/cart/items/{cartItemId}` | Remove item | Optional* |
+| DELETE | `/api/v1/cart` | Clear cart | Optional* |
 
-*Guest users identified by a session token in a cookie or Authorization header.
+*Authenticated users are identified by the Supabase JWT in `Authorization: Bearer …`. Guests pass a UUID in the `X-NV-Session` request header — never via cookies (see §13 for CSRF/SameSite rationale). On first guest request the server returns a freshly minted UUID via the `X-NV-Session` response header for the client to store in localStorage.
 
 ### 9.3 Orders
 
 | Method | Route | Description | Auth |
 |---|---|---|---|
-| POST | `/api/orders` | Create order from cart | Yes |
-| GET | `/api/orders` | List user's orders (filtered) | Yes |
-| GET | `/api/orders/{id}` | Get order detail | Yes |
-| POST | `/api/orders/{id}/cancel` | Cancel pending order | Yes |
+| POST | `/api/v1/orders` | Create order from cart — accepts `Idempotency-Key` header (24h replay window) | Yes |
+| GET | `/api/v1/orders` | List user's orders (filtered) | Yes |
+| GET | `/api/v1/orders/{id}` | Get order detail | Yes |
+| POST | `/api/v1/orders/{id}/cancel` | Cancel pending order (restores stock atomically) | Yes |
 
 **Query parameters for `GET /api/orders`:**
 - `status` — `pending`, `confirmed`, `shipping`, `completed`, `cancelled`
@@ -1550,12 +1798,12 @@ app.Run();
 
 | Method | Route | Description | Auth |
 |---|---|---|---|
-| GET | `/api/auth/me` | Get current user profile from `app_users` | Yes |
-| PUT | `/api/auth/me` | Update profile (name, phone, address) | Yes |
-| POST | `/api/auth/me/avatar` | Upload avatar to Supabase Storage | Yes |
-| DELETE | `/api/auth/me` | Delete account | Yes |
+| GET | `/api/v1/auth/me` | Get current user profile from `app_users` | Yes |
+| PUT | `/api/v1/auth/me` | Update profile (name, phone, address) | Yes |
+| POST | `/api/v1/auth/me/avatar` | Upload avatar (multipart/form-data, max 2 MB, jpeg/png/webp) | Yes |
+| DELETE | `/api/v1/auth/me` | Delete account — deletes `app_users` row + calls Supabase Admin delete | Yes |
 
-**GET `/api/auth/me` response:**
+**GET `/api/v1/auth/me` response:**
 ```json
 {
   "id": "a1b2c3d4-...",
@@ -1570,7 +1818,7 @@ app.Run();
 }
 ```
 
-**PUT `/api/auth/me` request:**
+**PUT `/api/v1/auth/me` request:**
 ```json
 {
   "fullName": "Nguyễn Văn A",
@@ -1583,7 +1831,7 @@ app.Run();
 
 | Method | Route | Description | Auth |
 |---|---|---|---|
-| POST | `/api/contact` | Submit contact form | No (rate-limited) |
+| POST | `/api/v1/contact` | Submit contact form | No (stricter rate-limit policy `contact`: 3 req / IP / hour) |
 
 **Request:**
 ```json
@@ -1600,15 +1848,15 @@ app.Run();
 
 | Method | Route | Description |
 |---|---|---|
-| POST | `/api/admin/products` | Create product |
-| PUT | `/api/admin/products/{id}` | Update product |
-| DELETE | `/api/admin/products/{id}` | Soft-delete product |
-| POST | `/api/admin/products/{id}/images` | Upload product images |
-| GET | `/api/admin/orders` | List all orders |
-| PUT | `/api/admin/orders/{id}/status` | Update order status |
-| GET | `/api/admin/contacts` | List contact messages |
-| PUT | `/api/admin/contacts/{id}/read` | Mark contact as read |
-| GET | `/api/admin/dashboard` | Dashboard stats |
+| POST | `/api/v1/admin/products` | Create product |
+| PUT | `/api/v1/admin/products/{id}` | Update product |
+| DELETE | `/api/v1/admin/products/{id}` | Soft-delete product |
+| POST | `/api/v1/admin/products/{id}/images` | Upload product images |
+| GET | `/api/v1/admin/orders` | List all orders |
+| PUT | `/api/v1/admin/orders/{id}/status` | Update order status |
+| GET | `/api/v1/admin/contacts` | List contact messages |
+| PUT | `/api/v1/admin/contacts/{id}/read` | Mark contact as read |
+| GET | `/api/v1/admin/dashboard` | Dashboard stats |
 
 ---
 
@@ -1616,7 +1864,9 @@ app.Run();
 
 ### Architecture: Supabase Auth + OIDC/JWKS Cryptographic Verification
 
-Authentication is **fully delegated to Supabase Auth**. The .NET API server does **not** handle registration, login, password hashing, OAuth callbacks, or token issuance. Instead, it **cryptographically verifies** every incoming JWT using Supabase's RSA public key, fetched automatically via OIDC discovery.
+Authentication is **fully delegated to Supabase Auth**. The .NET API server does **not** handle registration, login, password hashing, OAuth callbacks, or token issuance. Instead, it **cryptographically verifies** every incoming JWT using Supabase's RSA/ES public key, fetched automatically via OIDC discovery.
+
+> ⚠ **Precondition** — Supabase projects default to **HS256** (symmetric) signing for backwards compatibility. The OIDC/JWKS pipeline below only works once you flip the project to **asymmetric** keys in **Supabase Dashboard → Auth → JWT Keys → "Use asymmetric signing keys"** (RS256 or ES256). Verify by visiting `https://<project-ref>.supabase.co/auth/v1/.well-known/jwks.json` — it must return at least one key whose `alg` is `RS256` or `ES256`.
 
 ### How JWT Verification Works (step by step)
 
@@ -1647,21 +1897,24 @@ Authentication is **fully delegated to Supabase Auth**. The .NET API server does
 │                                                                             │
 │  5. CLAIMS VALIDATION                                                       │
 │     After signature verification, the middleware checks:                     │
-│     • "iss" (issuer) == "{SupabaseUrl}/auth/v1"                            │
+│     • "iss" (issuer) ∈ ValidIssuers (with + without trailing slash)         │
 │     • "aud" (audience) == "authenticated"                                   │
-│     • "exp" (expiry) > current UTC time (with 30s clock skew)               │
+│     • "exp" (expiry) > current UTC time (with 60s clock skew)               │
 │     → If any check fails → 401 Unauthorized                                │
 │                                                                             │
-│  6. POPULATE HttpContext.User                                               │
-│     All JWT claims become ClaimsPrincipal claims:                            │
+│  6. POPULATE HttpContext.User (MapInboundClaims = false, so "sub" stays)    │
 │     • "sub" → user UUID (AppUser.Id)                                        │
 │     • "email" → user email                                                  │
-│     • "app_metadata.provider" → "email" | "google" | "facebook"            │
-│     • "app_metadata.role" → "Admin" (if set)                               │
-│     • "user_metadata.full_name" → display name from OAuth                  │
+│     • `app_metadata` arrives as a single JSON-string claim — NOT auto-      │
+│       flattened. OnTokenValidated expands it into discrete claims:           │
+│         "provider" → "email" | "google" | "facebook"                        │
+│         "role" → "Admin" (if set)                                           │
+│     • `user_metadata` is flattened the same way:                            │
+│         "full_name", "avatar_url"                                           │
 │     HttpContext.User.Identity.IsAuthenticated == true                       │
 │                                                                             │
-│  7. OnTokenValidated event fires → auto-provision AppUser if new            │
+│  7. UserProvisioningMiddleware runs next → idempotent upsert into           │
+│     `public.app_users` (INSERT … ON CONFLICT DO NOTHING)                    │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -1669,7 +1922,7 @@ Authentication is **fully delegated to Supabase Auth**. The .NET API server does
 
 | Approach | How it works | Tradeoff |
 |---|---|---|
-| **Symmetric (HS256 + JWT secret)** | API and Supabase share the same secret key. API validates by re-computing the HMAC. | Simpler config, but the JWT secret is a **master key** — if leaked, an attacker can forge any token. Also couples key rotation to manual config changes. |
+| **Symmetric (HS256 + JWT secret)** — Supabase default for new projects | API and Supabase share the same secret key. API validates by re-computing the HMAC. | Simpler config, but the JWT secret is a **master key** — if leaked, an attacker can forge any token. Also couples key rotation to manual config changes. **Not what this architecture uses** — switch the Supabase project to asymmetric keys before deploying (see Appendix B step 2). |
 | **Asymmetric (RS256 + JWKS) ✓** | Supabase signs with a private key. API fetches the **public** key via OIDC discovery and verifies. | The API never holds a secret that can forge tokens. Key rotation is automatic (Supabase publishes new keys, middleware fetches them). Industry standard for OIDC/OAuth2. |
 
 The JWKS approach is what `AddJwtBearer` with `options.Authority` does out of the box — zero custom key management code.
@@ -1798,6 +2051,8 @@ public class CurrentUserService(IHttpContextAccessor httpContextAccessor) : ICur
 {
     private ClaimsPrincipal? User => httpContextAccessor.HttpContext?.User;
 
+    // Works because Program.cs sets `MapInboundClaims = false` — otherwise "sub"
+    // would have been rewritten to ClaimTypes.NameIdentifier and this returns null.
     public Guid? UserId => User?.FindFirst("sub")?.Value is { } sub
         ? Guid.Parse(sub)
         : null;
@@ -1806,10 +2061,12 @@ public class CurrentUserService(IHttpContextAccessor httpContextAccessor) : ICur
 
     public string? Email => User?.FindFirst("email")?.Value;
 
-    public string? AuthProvider => User?.FindFirst("app_metadata.provider")?.Value;
+    // "provider" and "role" are flattened from `app_metadata` by OnTokenValidated in Program.cs.
+    // Reading `app_metadata.provider` directly returns null — the JWT handler doesn't
+    // auto-expand nested JSON claims into dotted-path lookups.
+    public string? AuthProvider => User?.FindFirst("provider")?.Value;
 
-    public bool IsAdmin =>
-        User?.FindFirst("app_metadata.role")?.Value == "Admin";
+    public bool IsAdmin => User?.FindFirst("role")?.Value == "Admin";
 }
 ```
 
@@ -1823,26 +2080,32 @@ Admin role is stored in Supabase's `app_metadata` via the **Supabase Admin API**
 public interface ISupabaseAdminService
 {
     Task SetUserRoleAsync(Guid userId, string role);
+    Task DeleteUserAsync(Guid userId);
 }
 
 public class SupabaseAdminService(HttpClient http, IConfiguration config) : ISupabaseAdminService
 {
     public async Task SetUserRoleAsync(Guid userId, string role)
     {
+        using var request = BuildAdminRequest(HttpMethod.Put, $"admin/users/{userId}");
+        request.Content = JsonContent.Create(new { app_metadata = new { role } });
+        (await http.SendAsync(request)).EnsureSuccessStatusCode();
+    }
+
+    public async Task DeleteUserAsync(Guid userId)
+    {
+        using var request = BuildAdminRequest(HttpMethod.Delete, $"admin/users/{userId}");
+        (await http.SendAsync(request)).EnsureSuccessStatusCode();
+    }
+
+    private HttpRequestMessage BuildAdminRequest(HttpMethod method, string path)
+    {
         var supabaseUrl = config["Supabase:Url"]!;
         var serviceKey = config["Supabase:ServiceRoleKey"]!;
-
-        var request = new HttpRequestMessage(HttpMethod.Put,
-            $"{supabaseUrl}/auth/v1/admin/users/{userId}");
-        request.Headers.Add("apikey", serviceKey);
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", serviceKey);
-        request.Content = JsonContent.Create(new
-        {
-            app_metadata = new { role }
-        });
-
-        var response = await http.SendAsync(request);
-        response.EnsureSuccessStatusCode();
+        var req = new HttpRequestMessage(method, $"{supabaseUrl}/auth/v1/{path}");
+        req.Headers.Add("apikey", serviceKey);
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", serviceKey);
+        return req;
     }
 }
 ```
@@ -1857,7 +2120,15 @@ public class SupabaseAdminService(HttpClient http, IConfiguration config) : ISup
 
 ### Guest Cart Strategy
 
-Guests get a **session cookie** (`nv-session-id`) containing a GUID. Their cart is stored server-side associated with this session ID. When they register or log in (via any method — email, Google, or Facebook), the guest cart is **merged** into their authenticated user cart.
+Guests pass a **UUID in the `X-NV-Session` request header**, not a cookie. The server stores the cart keyed on this id. On the very first guest request the server mints a UUID and returns it in `X-NV-Session` (response header) — the SPA persists it in `localStorage` and sends it on every subsequent cart call.
+
+Header (not cookie) is deliberate:
+
+- No `SameSite`/`Secure` cross-origin friction (the API and SPA live on different subdomains).
+- No CSRF surface — browsers do not auto-attach custom headers like cookies.
+- No `AllowCredentials` needed in CORS.
+
+When the guest registers or logs in (via any method — email, Google, or Facebook), the SPA submits the guest UUID once to `POST /api/v1/cart/merge`, and the server merges the guest cart into the authenticated user cart using `Cart.MergeFrom(...)`, supplying the current variant-stock map so the merge cannot exceed available stock.
 
 ### Auth API Endpoints (reduced scope)
 
@@ -1865,10 +2136,10 @@ Since Supabase handles registration/login/OAuth, the .NET API auth endpoints are
 
 | Method | Route | Description | Auth |
 |---|---|---|---|
-| GET | `/api/auth/me` | Get current user profile (from `app_users` table) | Yes |
-| PUT | `/api/auth/me` | Update profile (name, phone, address) | Yes |
-| POST | `/api/auth/me/avatar` | Upload avatar to Supabase Storage | Yes |
-| DELETE | `/api/auth/me` | Delete account (removes `app_users` row + calls Supabase Admin delete) | Yes |
+| GET | `/api/v1/auth/me` | Get current user profile (from `app_users` table) | Yes |
+| PUT | `/api/v1/auth/me` | Update profile (name, phone, address) | Yes |
+| POST | `/api/v1/auth/me/avatar` | Upload avatar to Supabase Storage | Yes |
+| DELETE | `/api/v1/auth/me` | Delete account (removes `app_users` row + calls Supabase Admin delete) | Yes |
 
 Registration, login, password reset, and OAuth are handled entirely by the frontend talking to Supabase Auth — the .NET API is not involved.
 
@@ -1909,10 +2180,13 @@ Pending ──► Confirmed ──► Shipping ──► Completed
 
 ### 11.3 Stock Management
 
-- **Deduct** stock when an order is created (not when added to cart)
-- **Restore** stock when an order is cancelled
-- Cart items are validated against current stock at checkout time
-- No reservation system (simple approach for initial launch)
+- **Deduct** stock when an order is created (not when added to cart).
+- **Restore** stock when an order is cancelled (`CancelOrderHandler` — see §5.4a).
+- Cart items are validated against current stock at checkout time.
+- No reservation system (simple approach for initial launch).
+- **Concurrency control is mandatory** — without it, two concurrent checkouts can both pass the stock check and oversell. We use **two layered defenses**:
+  1. `CreateOrderHandler` opens an explicit transaction and locks the relevant `ProductVariants` rows with `SELECT … FOR UPDATE` before deducting.
+  2. `ProductVariant` is configured with PostgreSQL's `xmin` system column as an EF Core concurrency token (`.UseXminAsConcurrencyToken()`), so any code path that bypasses the lock still fails fast on `DbUpdateConcurrencyException` instead of silently overselling.
 
 ### 11.4 Price Integrity
 
@@ -1922,7 +2196,27 @@ Pending ──► Confirmed ──► Shipping ──► Completed
 
 ### 11.5 Order Code Generation
 
-Format: `DH` + `yyMMdd` + 4-digit random = `DH260513XXXX`
+Format: `DH` + `yyMMdd` + **6 base32 characters** (Crockford alphabet) = `DH260513A8K4QF`.
+
+- 32⁶ ≈ 1 billion codes/day → collision probability ≈ 0 even at sustained 1k orders/day.
+- The `OrderCode` column has a unique index. `CreateOrderHandler` retries up to 5 times on a `23505` unique-violation (see §5.4) — in practice a retry will almost never fire.
+- Avoid sequence-based codes (`DH000001`) — they leak daily order volume to anyone enumerating order pages.
+
+```csharp
+private static string GenerateOrderCode()
+{
+    const string alphabet = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"; // Crockford base32
+    Span<char> suffix = stackalloc char[6];
+    Span<byte> bytes = stackalloc byte[6];
+    RandomNumberGenerator.Fill(bytes);
+    for (var i = 0; i < 6; i++) suffix[i] = alphabet[bytes[i] % 32];
+    return $"DH{DateTime.UtcNow:yyMMdd}{new string(suffix)}";
+}
+```
+
+### 11.6 Background Jobs (Order Confirmation Email)
+
+Order confirmation emails are dispatched via an in-process `IBackgroundJobQueue` (a `Channel<IBackgroundJob>` consumed by a hosted service). Order creation does not await SMTP — an SMTP outage can no longer fail a checkout. Promote to a durable queue (Hangfire + Postgres, or a Supabase Edge Function on a webhook) once volume requires retry / dead-letter semantics.
 
 ---
 
@@ -2017,30 +2311,38 @@ All error responses follow **RFC 7807 Problem Details**. Success responses retur
 
 ### Frontend Integration Pattern
 
-The Next.js (or Vite) frontend calls the API via `fetch` or a thin wrapper:
+The Next.js (or Vite) frontend calls the API via `fetch` with the Supabase access token in the `Authorization` header and the guest session id (if any) in `X-NV-Session`. No cookies, no `credentials: 'include'`.
+
+JSON properties are camelCase end-to-end — STJ defaults serialize PascalCase C# records to camelCase JSON.
 
 ```typescript
 // Frontend: lib/api.ts
+import { supabase } from './supabase';
+
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:5000';
 
 export async function apiClient<T>(
   path: string,
   options?: RequestInit,
 ): Promise<T> {
+  const { data: { session } } = await supabase.auth.getSession();
+  const guestSession = localStorage.getItem('nv-session');   // null when authenticated
+
   const res = await fetch(`${API_BASE}${path}`, {
     ...options,
     headers: {
       'Content-Type': 'application/json',
+      ...(session?.access_token && { Authorization: `Bearer ${session.access_token}` }),
+      ...(!session && guestSession && { 'X-NV-Session': guestSession }),
       ...options?.headers,
     },
-    credentials: 'include', // send cookies for session
   });
 
-  if (!res.ok) {
-    const problem = await res.json();
-    throw new ApiError(problem);
-  }
+  // Server may issue a fresh guest session id on the first call.
+  const issued = res.headers.get('X-NV-Session');
+  if (issued && !session) localStorage.setItem('nv-session', issued);
 
+  if (!res.ok) throw new ApiError(await res.json());
   return res.json();
 }
 ```
@@ -2072,12 +2374,27 @@ builder.Host.UseSerilog((context, config) => config
 ### Health Checks
 
 ```csharp
+var dbConn = builder.Configuration.GetConnectionString("SupabaseDirectConnection")
+    ?? throw new InvalidOperationException(
+        "ConnectionStrings:SupabaseDirectConnection is not configured. " +
+        "Set it in appsettings or via the SUPABASE_DB_PASSWORD env var.");
+
 builder.Services.AddHealthChecks()
-    .AddNpgSql(builder.Configuration.GetConnectionString("SupabaseDirectConnection")!)  // Supabase PostgreSQL
+    .AddNpgSql(dbConn, name: "supabase-postgres", timeout: TimeSpan.FromSeconds(3))
     .AddCheck("self", () => HealthCheckResult.Healthy());
 
 app.MapHealthChecks("/health");
 ```
+
+### Logging hygiene
+
+Before going live, configure Serilog destructuring policies to **redact** sensitive headers and request bodies:
+
+- `Authorization` and `apikey` headers → `***`
+- `email`, `phone`, `address` in request payloads → masked beyond first character + length hint
+- Supabase JWT contents (if ever serialized) → never log raw token bodies
+
+Use `Serilog.Enrichers.Sensitive` or a small `IDestructuringPolicy` to enforce this in one place.
 
 ### Key Metrics to Track
 
@@ -2241,12 +2558,47 @@ services:
 
 ### Production Considerations
 
-- **HTTPS termination** via reverse proxy (nginx, Caddy, Azure Front Door)
-- **Connection pooling** via Supabase Supavisor (port 6543, Transaction mode) for production query traffic
-- **Secrets** via Azure Key Vault / AWS Secrets Manager / Docker secrets (never in appsettings) — specifically `SUPABASE_DB_PASSWORD` and `SUPABASE_SERVICE_ROLE_KEY` (no JWT secret needed — JWKS discovery is automatic)
-- **Database backups** — managed by Supabase (daily automatic backups on Pro plan; point-in-time recovery available)
-- **CI/CD** — GitHub Actions: build → test → Docker push → deploy
-- **Supabase Storage** — product images served via Supabase CDN; configure bucket policies (public read for product images, authenticated for avatars)
+- **HTTPS termination** via reverse proxy (nginx, Caddy, Azure Front Door).
+- **Connection pooling** via Supabase Supavisor (port 6543, Transaction mode) for production query traffic.
+- **Secrets** via Azure Key Vault / AWS Secrets Manager / Docker secrets (never in appsettings) — specifically `SUPABASE_DB_PASSWORD` and `SUPABASE_SERVICE_ROLE_KEY` (no JWT secret needed — JWKS discovery is automatic).
+- **Database backups** — managed by Supabase (daily automatic backups on Pro plan; point-in-time recovery available).
+- **CI/CD** — GitHub Actions: build → test → migrate → Docker push → deploy (see below).
+- **Supabase Storage** — product images served via Supabase CDN. Bucket policies:
+  - `product-images` → **public read** (CDN URLs are safe to expose).
+  - `avatars` → **private**; profile pages get short-lived signed URLs (`createSignedUrl`, 1h TTL). The `/api/v1/auth/me` response returns the signed URL, refreshed per request.
+
+### Migrations — never on app startup
+
+`db.Database.MigrateAsync()` is **not** called from `Program.cs`. Two reasons:
+
+1. With ≥2 replicas the first-up race condition can corrupt the migrations history table.
+2. Failed schema changes pin the deployment — you can't roll back the API container without already-applied DDL still being live.
+
+Instead, the CI/CD pipeline runs migrations as a **separate, pre-traffic step**:
+
+```yaml
+# .github/workflows/ci.yml (excerpt)
+- name: Apply EF migrations
+  run: dotnet ef database update --project src/NhanViet.Infrastructure --startup-project src/NhanViet.Api
+  env:
+    ConnectionStrings__SupabaseDirectConnection: ${{ secrets.SUPABASE_DIRECT_CONN }}
+
+- name: Build & push API image
+  run: ...   # only runs if the migration step succeeds
+```
+
+For local dev the same effect is achieved with `dotnet ef database update`; the seeder is invoked by a one-shot `dotnet run --project tools/SeedRunner` rather than embedded in the API host.
+
+### Supabase migrations vs EF Core migrations
+
+These two systems do not overlap, but the boundary must be explicit:
+
+| Schema | Owner | Tooling |
+|---|---|---|
+| `auth.*`, `storage.*`, `realtime.*` | Supabase | Supabase Studio / `supabase db push` |
+| `public.*` (business tables) | This repo | EF Core migrations |
+
+Do **not** edit `public.*` tables from Supabase Studio — EF Core will detect schema drift on the next migration and try to revert your manual changes.
 
 ---
 
@@ -2254,18 +2606,18 @@ services:
 
 | Phase | Scope | Duration | Dependencies |
 |---|---|---|---|
-| **1** | Solution setup, domain entities, EF Core → Supabase PostgreSQL, product CRUD + seed data, Swagger | 1 week | Supabase project created |
-| **2** | Supabase Auth integration: JWT validation in .NET, Google + Facebook OAuth config in Supabase dashboard, user profile endpoints, auto-provision AppUser | 1 week | Phase 1 |
-| **3** | Cart API (add, update, remove, clear, guest merge on login) | 3-4 days | Phase 2 |
-| **4** | Order API (create from cart, list, detail, cancel, stock deduction) | 1 week | Phase 3 |
-| **5** | Contact form API + email notifications | 2-3 days | Phase 1 |
-| **6** | Admin endpoints (product CRUD, order management, dashboard stats, role assignment via Supabase Admin API) | 1 week | Phase 4 |
-| **7** | Image upload to Supabase Storage, rate limiting, health checks | 3-4 days | Phase 1 |
-| **8** | Integration tests, Docker, CI/CD, staging deployment | 1 week | Phase 6 |
-| **9** | Frontend integration (replace mock data with API calls, wire up Supabase Auth in frontend) | 1-2 weeks | Phase 4 |
+| **1** | Solution setup, domain entities (incl. `OrderStatusHistory`), EF Core → Supabase PostgreSQL with decimal precision + xmin concurrency tokens, product CRUD + seed data, Swagger | 1 week | Supabase project created |
+| **2** | Supabase Auth: **switch project to asymmetric JWT keys**, OIDC/JWKS validation in .NET (with claim flattening + `MapInboundClaims = false`), Google + Facebook OAuth provider review (Facebook can take days), user profile endpoints, idempotent AppUser provisioning middleware | **2 weeks** | Phase 1 |
+| **3** | Cart API (add, update by `CartItemId`, remove, clear, guest session via `X-NV-Session`, stock-aware merge on login) | 4–5 days | Phase 2 |
+| **4** | Order API (create with idempotency + transactional stock decrement, list, detail, cancel with stock restore, deferred email via background queue) | 1 week | Phase 3 |
+| **5** | Contact form API + email notifications via background queue + strict per-IP rate limit | 2–3 days | Phase 4 |
+| **6** | Admin endpoints (product CRUD, order management, dashboard stats, role assignment + user deletion via Supabase Admin API) | 1 week | Phase 4 |
+| **7** | Image upload to Supabase Storage (public `product-images`, private `avatars` with signed URLs), rate limiting policies, health checks, logging redaction | 3–4 days | Phase 1 |
+| **8** | Integration tests, Docker, **CI-driven migrations (no startup migration)**, staging deployment | 1 week | Phase 6 |
+| **9** | Frontend integration (replace mock data with API calls, wire up Supabase Auth and `X-NV-Session` in frontend) | 1–2 weeks | Phase 4 |
 | **10** | _Future:_ Add caching layer (IMemoryCache / Redis) for product catalog | TBD | Phase 9 |
 
-**Total estimated timeline: 7-8 weeks** (Phase 10 deferred)
+**Total estimated timeline: 8–9 weeks** (Phase 10 deferred). Phase 2 is the largest single risk; Facebook provider approval and the asymmetric-key migration in Supabase regularly slip beyond a single week.
 
 ---
 
@@ -2273,7 +2625,7 @@ services:
 
 ```xml
 <!-- NhanViet.Domain -->
-<PackageReference Include="MediatR.Contracts" Version="2.*" />
+<!-- Zero NuGet dependencies. Add MediatR.Contracts only when domain events are introduced. -->
 
 <!-- NhanViet.Application -->
 <PackageReference Include="MediatR" Version="12.*" />
@@ -2285,18 +2637,21 @@ services:
 <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="8.*" />
 <!-- NO Microsoft.AspNetCore.Identity.EntityFrameworkCore — Supabase Auth replaces Identity -->
 <PackageReference Include="Serilog.AspNetCore" Version="8.*" />
+<PackageReference Include="Serilog.Enrichers.Sensitive" Version="1.*" /> <!-- redaction policies -->
 
 <!-- NhanViet.Api -->
 <PackageReference Include="Swashbuckle.AspNetCore" Version="6.*" />
 <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="8.*" />
-<!-- JwtBearer handles OIDC discovery, JWKS fetch, RSA signature verification, and claim population.
+<!-- JwtBearer handles OIDC discovery, JWKS fetch, RSA/ES signature verification, and claim population.
      With options.Authority set, it automatically discovers keys — no extra packages needed. -->
-<PackageReference Include="AspNetCoreRateLimit" Version="5.*" />
+<!-- Rate limiting is built into ASP.NET Core 7+ via Microsoft.AspNetCore.RateLimiting — no NuGet ref needed.
+     Do NOT add AspNetCoreRateLimit (the older third-party package) — they conflict. -->
+<PackageReference Include="AspNetCore.HealthChecks.NpgSql" Version="8.*" />
 
 <!-- Test projects -->
 <PackageReference Include="xunit" Version="2.*" />
 <PackageReference Include="FluentAssertions" Version="6.*" />
-<PackageReference Include="Moq" Version="4.*" />
+<PackageReference Include="NSubstitute" Version="5.*" />
 <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="8.*" />
 <PackageReference Include="Testcontainers.PostgreSql" Version="3.*" />
 ```
@@ -2369,15 +2724,16 @@ services:
 
 Before running the .NET API, complete these one-time steps in the Supabase Dashboard:
 
-1. **Create project** at [supabase.com](https://supabase.com) — note the project ref, DB password, and API keys
-2. **Auth → Providers → Google** — enable, paste Client ID + Secret from Google Cloud Console
-3. **Auth → Providers → Facebook** — enable, paste App ID + Secret from Meta Developer Console
-4. **Auth → URL Configuration** — add redirect URLs for your frontend domains
-5. **Auth → Email Templates** — customize confirmation/reset emails in Vietnamese
-6. **Storage → Create buckets:**
-   - `product-images` (public access for product photos)
-   - `avatars` (authenticated access for user profile pictures)
-7. **Settings → Database** — copy the direct connection string (port 5432)
-8. **Verify OIDC discovery works** — open `https://<project-ref>.supabase.co/auth/v1/.well-known/openid-configuration` in a browser and confirm it returns JSON with a `jwks_uri` field
+1. **Create project** at [supabase.com](https://supabase.com) — note the project ref, DB password, and API keys.
+2. **⚠ Auth → JWT Keys → switch to asymmetric signing (RS256 or ES256)**. This is the most-missed step. New projects default to HS256 (symmetric), which the `AddJwtBearer` + OIDC pipeline cannot verify against the JWKS endpoint. After switching, existing access tokens are invalidated — users must sign in again.
+3. **Auth → Providers → Google** — enable, paste Client ID + Secret from Google Cloud Console.
+4. **Auth → Providers → Facebook** — enable, paste App ID + Secret from Meta Developer Console. Plan for several days of Meta app review before this is usable in production.
+5. **Auth → URL Configuration** — add redirect URLs for your frontend domains.
+6. **Auth → Email Templates** — customize confirmation/reset emails in Vietnamese.
+7. **Storage → Create buckets:**
+   - `product-images` → **public read** (CDN URLs are world-readable; product photos are not sensitive).
+   - `avatars` → **private**; the .NET API returns short-lived signed URLs (`createSignedUrl`, 1h TTL) instead of public links.
+8. **Settings → Database** — copy the direct connection string (port 5432).
+9. **Verify OIDC discovery + JWKS** — open `https://<project-ref>.supabase.co/auth/v1/.well-known/openid-configuration` and confirm it returns JSON with a `jwks_uri`. Then open the `jwks_uri` itself and confirm at least one key with `"alg": "RS256"` or `"ES256"` — if you only see `HS256`, step 2 was not done correctly.
 
-> **No JWT secret needed in appsettings.** The .NET API discovers Supabase's RSA public key automatically via OIDC/JWKS. The `Supabase:ServiceRoleKey` is only used for admin operations (setting user roles, deleting users) — never for JWT validation.
+> **No JWT secret needed in appsettings.** The .NET API discovers Supabase's public key automatically via OIDC/JWKS. The `Supabase:ServiceRoleKey` is only used for admin operations (setting user roles, deleting users, generating signed avatar URLs) — never for JWT validation.
