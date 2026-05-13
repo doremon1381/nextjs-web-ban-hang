@@ -6,6 +6,11 @@ import { BreadcrumbJsonLd } from '@/components/seo/BreadcrumbJsonLd';
 export const metadata: Metadata = {
   title: 'Nhãn Sấy Dẻo',
   description: 'Nhãn sấy dẻo thơm tự nhiên, không chất bảo quản. Phù hợp ăn gia đình và làm quà biếu.',
+  openGraph: {
+    title: 'Nhãn Sấy Dẻo | Nhãn Việt',
+    description: 'Nhãn sấy dẻo thơm tự nhiên, không chất bảo quản. Phù hợp ăn gia đình và làm quà biếu.',
+    images: [{ url: '/images/products/longan-dried-1.jpg', width: 1200, height: 800, alt: 'Nhãn sấy dẻo tự nhiên' }],
+  },
 };
 
 export default function NhanSayPage() {

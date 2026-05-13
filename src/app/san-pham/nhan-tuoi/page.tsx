@@ -6,6 +6,11 @@ import { BreadcrumbJsonLd } from '@/components/seo/BreadcrumbJsonLd';
 export const metadata: Metadata = {
   title: 'Nhãn Lồng Tươi',
   description: 'Nhãn lồng tươi Hưng Yên, Bắc Giang - cùi dày, ngọt thanh, hạt nhỏ. Thu hoạch trong ngày, giao hàng toàn quốc.',
+  openGraph: {
+    title: 'Nhãn Lồng Tươi | Nhãn Việt',
+    description: 'Nhãn lồng tươi Hưng Yên, Bắc Giang - cùi dày, ngọt thanh, hạt nhỏ. Thu hoạch trong ngày, giao hàng toàn quốc.',
+    images: [{ url: '/images/products/longan-fresh-2.jpg', width: 1200, height: 800, alt: 'Nhãn lồng tươi từ vườn' }],
+  },
 };
 
 export default function NhanTuoiPage() {

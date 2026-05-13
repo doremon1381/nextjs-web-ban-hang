@@ -1,5 +1,6 @@
 'use client';
 import Link from 'next/link';
+import Image from 'next/image';
 import { ShoppingCart, Star } from 'lucide-react';
 import { useCart } from '@/components/cart/CartProvider';
 import type { Product } from '@/lib/data/products';
@@ -21,13 +22,15 @@ export function ProductCard({ product }: { product: Product }) {
   return (
     <article className="bg-white border border-[#E5E7EB] rounded-2xl overflow-hidden hover:shadow-xl transition-shadow group">
       <Link href={`/san-pham/${product.slug}`} className="relative overflow-hidden aspect-square block">
-        <img
+        <Image
+          fill
           src={product.image}
           alt={`${product.name} - ${product.description}`}
-          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+          className="object-cover group-hover:scale-105 transition-transform duration-300"
+          sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 25vw"
         />
         {product.badge && (
-          <div className="absolute top-3 left-3 px-3 py-1 bg-[#F4B942] text-white text-xs rounded-full" aria-label={`Nhãn: ${product.badge}`}>
+          <div className="absolute top-3 left-3 px-3 py-1 bg-[#F4B942] text-white text-xs rounded-full z-10" aria-label={`Nhãn: ${product.badge}`}>
             {product.badge}
           </div>
         )}

@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import Image from 'next/image';
 import { Leaf, Package, Truck } from 'lucide-react';
 import { getProducts } from '@/lib/data/products';
 import { ProductCard } from '@/components/ProductCard';
@@ -58,10 +59,13 @@ export default function Home() {
               </div>
             </div>
             <div className="relative">
-              <img
-                src="https://images.unsplash.com/photo-1755971103481-3fd82333a80a?w=800"
+              <Image
+                src="/images/products/longan-fresh-1.jpg"
                 alt="Nhãn lồng tươi Hưng Yên - Chùm nhãn chín vàng óng, cùi dày, ngọt thanh tự nhiên"
+                width={800}
+                height={600}
                 className="w-full h-auto rounded-3xl shadow-2xl"
+                priority
               />
             </div>
           </div>

@@ -1,6 +1,7 @@
 'use client';
 import { useState } from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { Star, Minus, Plus, ShoppingCart, Truck, Shield, ChevronLeft, Check, Package, Leaf } from 'lucide-react';
 import { type Product, type ProductVariant, CATEGORY_LABELS } from '@/lib/data/products';
@@ -66,10 +67,13 @@ export function ProductDetailPage({ product, relatedProducts }: ProductDetailPro
           {/* Left: Image Gallery */}
           <div>
             <div className="relative aspect-square bg-[#FAFAFA] rounded-3xl overflow-hidden mb-4 group">
-              <img
+              <Image
+                fill
                 src={productImages[selectedImage]}
                 alt={product.name}
-                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                className="object-cover group-hover:scale-105 transition-transform duration-500"
+                sizes="(max-width: 1024px) 100vw, 50vw"
+                priority
               />
               {product.badge && (
                 <div className="absolute top-4 left-4 px-4 py-1.5 bg-[#F4B942] text-white text-sm font-medium rounded-full shadow-lg">
@@ -90,7 +94,7 @@ export function ProductDetailPage({ product, relatedProducts }: ProductDetailPro
                         : 'border-[#E5E7EB] hover:border-[#43A047]/50 hover:scale-105'
                     }`}
                   >
-                    <img src={img} alt={`${product.name} ${index + 1}`} className="w-full h-full object-cover" />
+                    <Image fill src={img} alt={`${product.name} ${index + 1}`} className="object-cover" sizes="25vw" />
                   </button>
                 ))}
               </div>
@@ -401,10 +405,12 @@ export function ProductDetailPage({ product, relatedProducts }: ProductDetailPro
                   className="bg-white border border-[#E5E7EB] rounded-2xl overflow-hidden hover:shadow-xl transition-all group block"
                 >
                   <div className="relative aspect-square overflow-hidden">
-                    <img
+                    <Image
+                      fill
                       src={relatedProduct.image}
                       alt={relatedProduct.name}
-                      className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
+                      className="object-cover group-hover:scale-110 transition-transform duration-500"
+                      sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 25vw"
                     />
                     {relatedProduct.badge && (
                       <div className="absolute top-3 left-3 px-3 py-1 bg-[#F4B942] text-white text-xs font-medium rounded-full">

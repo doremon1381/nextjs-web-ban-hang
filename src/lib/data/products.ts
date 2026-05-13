@@ -45,12 +45,12 @@ export const products: Product[] = [
     description: 'Cùi dày, hạt nhỏ, ngọt thanh',
     price: 69000,
     unit: 'kg',
-    image: 'https://images.unsplash.com/photo-1755971103481-3fd82333a80a?w=500',
+    image: '/images/products/longan-fresh-1.jpg',
     images: [
-      'https://images.unsplash.com/photo-1755971103481-3fd82333a80a?w=800',
-      'https://images.unsplash.com/photo-1727761800023-7668b28b53dc?w=800',
-      'https://images.unsplash.com/photo-1755971103909-c2710ea5aad8?w=800',
-      'https://images.unsplash.com/photo-1727761799967-dbb46b23baef?w=800',
+      '/images/products/longan-fresh-1.jpg',
+      '/images/products/longan-fresh-2.jpg',
+      '/images/products/longan-fresh-3.jpg',
+      '/images/products/longan-fresh-4.jpg',
     ],
     category: 'fresh',
     fullDescription:
@@ -75,11 +75,11 @@ export const products: Product[] = [
     price: 135000,
     oldPrice: 150000,
     unit: 'chùm',
-    image: 'https://images.unsplash.com/photo-1727761801419-d19129d3253e?w=500',
+    image: '/images/products/longan-bunch-1.jpg',
     images: [
-      'https://images.unsplash.com/photo-1727761801419-d19129d3253e?w=800',
-      'https://images.unsplash.com/photo-1727761799967-dbb46b23baef?w=800',
-      'https://images.unsplash.com/photo-1755971103481-3fd82333a80a?w=800',
+      '/images/products/longan-bunch-1.jpg',
+      '/images/products/longan-fresh-4.jpg',
+      '/images/products/longan-fresh-1.jpg',
     ],
     category: 'fresh',
     fullDescription:
@@ -102,11 +102,11 @@ export const products: Product[] = [
     description: 'Dẻo thơm, ngọt tự nhiên',
     price: 125000,
     unit: 'túi',
-    image: 'https://images.unsplash.com/photo-1597975371283-5461cdf69d5e?w=500',
+    image: '/images/products/longan-dried-1.jpg',
     images: [
-      'https://images.unsplash.com/photo-1597975371283-5461cdf69d5e?w=800',
-      'https://images.unsplash.com/photo-1755971103490-a70bf35f8a4f?w=800',
-      'https://images.unsplash.com/photo-1755971103541-402280c3befc?w=800',
+      '/images/products/longan-dried-1.jpg',
+      '/images/products/longan-dried-2.jpg',
+      '/images/products/longan-dried-3.jpg',
     ],
     category: 'dried',
     fullDescription:
@@ -131,11 +131,11 @@ export const products: Product[] = [
     price: 199000,
     oldPrice: 240000,
     unit: 'combo',
-    image: 'https://images.unsplash.com/photo-1727761800233-1db40fa3f01f?w=500',
+    image: '/images/products/longan-combo-1.jpg',
     images: [
-      'https://images.unsplash.com/photo-1727761800233-1db40fa3f01f?w=800',
-      'https://images.unsplash.com/photo-1755971103481-3fd82333a80a?w=800',
-      'https://images.unsplash.com/photo-1597975371283-5461cdf69d5e?w=800',
+      '/images/products/longan-combo-1.jpg',
+      '/images/products/longan-fresh-1.jpg',
+      '/images/products/longan-dried-1.jpg',
     ],
     category: 'combo',
     fullDescription:
@@ -159,10 +159,10 @@ export const products: Product[] = [
     description: 'Quả to, ngọt thanh, cùi dày',
     price: 69000,
     unit: 'kg',
-    image: 'https://images.unsplash.com/photo-1727761800023-7668b28b53dc?w=500',
+    image: '/images/products/longan-fresh-2.jpg',
     images: [
-      'https://images.unsplash.com/photo-1727761800023-7668b28b53dc?w=800',
-      'https://images.unsplash.com/photo-1755971103481-3fd82333a80a?w=800',
+      '/images/products/longan-fresh-2.jpg',
+      '/images/products/longan-fresh-1.jpg',
     ],
     category: 'fresh',
     fullDescription:
@@ -180,8 +180,8 @@ export const products: Product[] = [
     description: 'Túi gia đình tiết kiệm',
     price: 135000,
     unit: 'túi',
-    image: 'https://images.unsplash.com/photo-1755971103909-c2710ea5aad8?w=500',
-    images: ['https://images.unsplash.com/photo-1755971103909-c2710ea5aad8?w=800'],
+    image: '/images/products/longan-fresh-3.jpg',
+    images: ['/images/products/longan-fresh-3.jpg'],
     category: 'fresh',
     fullDescription: 'Túi nhãn 2kg dành cho gia đình, giá tiết kiệm hơn so với mua lẻ.',
     origin: 'Vườn nhãn Bắc Giang',
@@ -197,8 +197,8 @@ export const products: Product[] = [
     description: 'Tươi từ vườn, thu hoạch trong ngày',
     price: 198000,
     unit: 'chùm',
-    image: 'https://images.unsplash.com/photo-1727761799967-dbb46b23baef?w=500',
-    images: ['https://images.unsplash.com/photo-1727761799967-dbb46b23baef?w=800'],
+    image: '/images/products/longan-fresh-4.jpg',
+    images: ['/images/products/longan-fresh-4.jpg'],
     category: 'fresh',
     fullDescription: 'Nhãn nguyên chùm tươi ngon, thu hoạch trong ngày, giữ nguyên cuống.',
     origin: 'Vườn nhãn Hưng Yên',
@@ -214,8 +214,8 @@ export const products: Product[] = [
     description: 'Đóng gói sang trọng, phù hợp biếu tặng',
     price: 350000,
     unit: 'hộp',
-    image: 'https://images.unsplash.com/photo-1727761800109-14e6e293680f?w=500',
-    images: ['https://images.unsplash.com/photo-1727761800109-14e6e293680f?w=800'],
+    image: '/images/products/longan-box-1.jpg',
+    images: ['/images/products/longan-box-1.jpg'],
     category: 'fresh',
     fullDescription:
       'Hộp quà nhãn cao cấp, đóng gói sang trọng, phù hợp biếu tặng người thân, đối tác.',
@@ -233,8 +233,8 @@ export const products: Product[] = [
     description: 'Thơm ngọt tự nhiên, không phẩm màu',
     price: 68000,
     unit: 'túi',
-    image: 'https://images.unsplash.com/photo-1597975371283-5461cdf69d5e?w=500',
-    images: ['https://images.unsplash.com/photo-1597975371283-5461cdf69d5e?w=800'],
+    image: '/images/products/longan-dried-1.jpg',
+    images: ['/images/products/longan-dried-1.jpg'],
     category: 'dried',
     fullDescription:
       'Nhãn sấy dẻo 250g, thơm ngọt tự nhiên, không chất bảo quản. Phù hợp ăn vặt hoặc pha trà.',
@@ -251,8 +251,8 @@ export const products: Product[] = [
     description: 'Dẻo thơm, ngọt thanh, giữ nguyên vị tự nhiên',
     price: 125000,
     unit: 'túi',
-    image: 'https://images.unsplash.com/photo-1755971103490-a70bf35f8a4f?w=500',
-    images: ['https://images.unsplash.com/photo-1755971103490-a70bf35f8a4f?w=800'],
+    image: '/images/products/longan-dried-2.jpg',
+    images: ['/images/products/longan-dried-2.jpg'],
     category: 'dried',
     fullDescription:
       'Nhãn sấy dẻo 500g, dẻo thơm ngọt thanh, giữ nguyên vị tự nhiên của nhãn tươi.',
@@ -270,8 +270,8 @@ export const products: Product[] = [
     description: 'Sấy khô hoàn toàn, bảo quản lâu',
     price: 135000,
     unit: 'túi',
-    image: 'https://images.unsplash.com/photo-1755971103541-402280c3befc?w=500',
-    images: ['https://images.unsplash.com/photo-1755971103541-402280c3befc?w=800'],
+    image: '/images/products/longan-dried-3.jpg',
+    images: ['/images/products/longan-dried-3.jpg'],
     category: 'dried',
     fullDescription:
       'Nhãn sấy khô hoàn toàn, bảo quản được lâu, tiện lợi mang theo du lịch.',
@@ -288,8 +288,8 @@ export const products: Product[] = [
     description: 'Hộp gỗ sang trọng, phù hợp tặng đối tác',
     price: 280000,
     unit: 'hộp',
-    image: 'https://images.unsplash.com/photo-1755971103481-3fd82333a80a?w=500',
-    images: ['https://images.unsplash.com/photo-1755971103481-3fd82333a80a?w=800'],
+    image: '/images/products/longan-fresh-1.jpg',
+    images: ['/images/products/longan-fresh-1.jpg'],
     category: 'dried',
     fullDescription:
       'Hộp quà nhãn sấy cao cấp với hộp gỗ sang trọng, phù hợp biếu tặng đối tác, khách hàng VIP.',
@@ -316,3 +316,4 @@ export const getProductBySlug = (slug: string): Product | undefined =>
   products.find(p => p.slug === slug);
 
 export const getAllProductSlugs = (): string[] => products.map(p => p.slug);
+
