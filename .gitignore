@@ -32,3 +32,4 @@ Thumbs.db
 # Project-specific
 .yarn/
 .yarn/cache/
+.claude/settings.local.json

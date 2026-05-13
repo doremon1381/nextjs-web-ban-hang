@@ -1,3 +1,4 @@
+'use client';
 import { useState } from 'react';
 import { Package, Clock, CheckCircle, XCircle, Truck, Eye } from 'lucide-react';
 

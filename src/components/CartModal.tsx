@@ -1,28 +1,11 @@
+'use client';
 import { X, Minus, Plus, Trash2, CheckCircle } from 'lucide-react';
 import { useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
+import { useCart } from '@/components/cart/CartProvider';
 
-interface CartItem {
-  id: string;
-  productId: string;
-  variantId: string;
-  name: string;
-  variantName: string;
-  price: number;
-  quantity: number;
-  image: string;
-  unit: string;
-}
-
-interface CartModalProps {
-  isOpen: boolean;
-  onClose: () => void;
-  items: CartItem[];
-  setItems: (items: CartItem[]) => void;
-  total: number;
-}
-
-export function CartModal({ isOpen, onClose, items, setItems, total }: CartModalProps) {
+export function CartModal() {
+  const { items, removeItem, updateQuantity, clearCart, total, isOpen, setIsOpen } = useCart();
   const [checkoutStep, setCheckoutStep] = useState<'cart' | 'checkout' | 'success'>('cart');
   const [formData, setFormData] = useState({
     name: '',
@@ -32,32 +15,17 @@ export function CartModal({ isOpen, onClose, items, setItems, total }: CartModal
     paymentMethod: 'cod'
   });
 
-  const formatPrice = (price: number) => {
-    return price.toLocaleString('vi-VN') + 'đ';
-  };
-
-  const updateQuantity = (id: string, delta: number) => {
-    setItems(
-      items.map(item =>
-        item.id === id
-          ? { ...item, quantity: Math.max(1, item.quantity + delta) }
-          : item
-      )
-    );
-  };
-
-  const removeItem = (id: string) => {
-    setItems(items.filter(item => item.id !== id));
-  };
+  const formatPrice = (price: number) => price.toLocaleString('vi-VN') + 'đ';
 
   const handleCheckout = (e: React.FormEvent) => {
     e.preventDefault();
     setCheckoutStep('success');
+    clearCart();
   };
 
   const handleClose = () => {
     setCheckoutStep('cart');
-    onClose();
+    setIsOpen(false);
   };
 
   const shippingFee = total >= 499000 ? 0 : 30000;
@@ -116,14 +84,14 @@ export function CartModal({ isOpen, onClose, items, setItems, total }: CartModal
                             <div className="flex items-center gap-3">
                               <div className="flex items-center gap-2 border border-[#E5E7EB] rounded-lg">
                                 <button
-                                  onClick={() => updateQuantity(item.id, -1)}
+                                  onClick={() => updateQuantity(item.id, item.quantity - 1)}
                                   className="p-1.5 hover:bg-[#F7FFF8]"
                                 >
                                   <Minus className="w-4 h-4 text-[#6B7280]" />
                                 </button>
                                 <span className="text-sm px-2">{item.quantity}</span>
                                 <button
-                                  onClick={() => updateQuantity(item.id, 1)}
+                                  onClick={() => updateQuantity(item.id, item.quantity + 1)}
                                   className="p-1.5 hover:bg-[#F7FFF8]"
                                 >
                                   <Plus className="w-4 h-4 text-[#6B7280]" />
@@ -259,10 +227,9 @@ export function CartModal({ isOpen, onClose, items, setItems, total }: CartModal
                       <div key={item.id} className="flex justify-between text-sm">
                         <div className="flex-1">
                           <p className="text-[#1F2937]">{item.name}</p>
-                          {item.variantName && (
+                          {item.variantName ? (
                             <p className="text-xs text-[#6B7280]">{item.variantName} x {item.quantity}</p>
-                          )}
-                          {!item.variantName && (
+                          ) : (
                             <p className="text-xs text-[#6B7280]">Số lượng: {item.quantity}</p>
                           )}
                         </div>

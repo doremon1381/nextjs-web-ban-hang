@@ -1,42 +1,19 @@
+'use client';
 import { useState } from 'react';
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { Star, Minus, Plus, ShoppingCart, Truck, Shield, ChevronLeft, Check, Package, Leaf } from 'lucide-react';
-
-interface ProductVariant {
-  id: string;
-  name: string;
-  price: number;
-  oldPrice?: number;
-  stock: number;
-}
+import { type Product, type ProductVariant, CATEGORY_LABELS } from '@/lib/data/products';
+import { useCart } from '@/components/cart/CartProvider';
 
 interface ProductDetailProps {
-  product: {
-    id: string;
-    name: string;
-    description: string;
-    price: number;
-    oldPrice?: number;
-    unit: string;
-    image: string;
-    images?: string[];
-    badge?: string;
-    rating: number;
-    category: string;
-    fullDescription?: string;
-    origin?: string;
-    harvest?: string;
-    packaging?: string;
-    storage?: string;
-    shipping?: string;
-    variants?: ProductVariant[];
-  };
-  relatedProducts: any[];
-  onBack: () => void;
-  onAddToCart: (product: any, variant?: ProductVariant, quantity?: number) => void;
-  onProductClick: (product: any) => void;
+  product: Product;
+  relatedProducts: Product[];
 }
 
-export function ProductDetailPage({ product, relatedProducts, onBack, onAddToCart, onProductClick }: ProductDetailProps) {
+export function ProductDetailPage({ product, relatedProducts }: ProductDetailProps) {
+  const router = useRouter();
+  const { addItem } = useCart();
   const [selectedImage, setSelectedImage] = useState(0);
   const [selectedVariant, setSelectedVariant] = useState<ProductVariant | null>(
     product.variants && product.variants.length > 0 ? product.variants[0] : null
@@ -44,28 +21,23 @@ export function ProductDetailPage({ product, relatedProducts, onBack, onAddToCar
   const [quantity, setQuantity] = useState(1);
 
   const productImages = product.images || [product.image];
-
   const currentPrice = selectedVariant ? selectedVariant.price : product.price;
   const currentOldPrice = selectedVariant ? selectedVariant.oldPrice : product.oldPrice;
   const currentStock = selectedVariant ? selectedVariant.stock : 100;
 
   const handleAddToCart = () => {
-    onAddToCart(product, selectedVariant || undefined, quantity);
+    addItem(product, selectedVariant || undefined, quantity);
   };
 
   const incrementQuantity = () => {
-    if (quantity < currentStock) {
-      setQuantity(quantity + 1);
-    }
+    if (quantity < currentStock) setQuantity(quantity + 1);
   };
 
   const decrementQuantity = () => {
-    if (quantity > 1) {
-      setQuantity(quantity - 1);
-    }
+    if (quantity > 1) setQuantity(quantity - 1);
   };
 
-  const isFreshProduct = product.category.includes('tươi');
+  const isFreshProduct = product.category === 'fresh';
 
   return (
     <div className="min-h-screen bg-white">
@@ -73,16 +45,16 @@ export function ProductDetailPage({ product, relatedProducts, onBack, onAddToCar
       <div className="bg-[#FAFAFA] border-b border-[#E5E7EB]">
         <div className="max-w-7xl mx-auto px-4 py-4">
           <button
-            onClick={onBack}
+            onClick={() => router.back()}
             className="flex items-center gap-2 text-[#43A047] hover:text-[#388E3C] transition-colors"
           >
             <ChevronLeft className="w-5 h-5" />
-            <span className="text-sm font-medium">Quay lại trang chủ</span>
+            <span className="text-sm font-medium">Quay lại</span>
           </button>
           <div className="flex items-center gap-2 text-sm text-[#6B7280] mt-2">
-            <button onClick={onBack} className="hover:text-[#43A047] transition-colors">Trang chủ</button>
+            <Link href="/" className="hover:text-[#43A047] transition-colors">Trang chủ</Link>
             <span>/</span>
-            <span>{product.category}</span>
+            <span>{CATEGORY_LABELS[product.category]}</span>
             <span>/</span>
             <span className="text-[#1F2937] font-medium">{product.name}</span>
           </div>
@@ -93,7 +65,6 @@ export function ProductDetailPage({ product, relatedProducts, onBack, onAddToCar
         <div className="grid lg:grid-cols-2 gap-12 mb-16">
           {/* Left: Image Gallery */}
           <div>
-            {/* Main Image */}
             <div className="relative aspect-square bg-[#FAFAFA] rounded-3xl overflow-hidden mb-4 group">
               <img
                 src={productImages[selectedImage]}
@@ -107,7 +78,6 @@ export function ProductDetailPage({ product, relatedProducts, onBack, onAddToCar
               )}
             </div>
 
-            {/* Thumbnail Gallery */}
             {productImages.length > 1 && (
               <div className="grid grid-cols-4 gap-3">
                 {productImages.map((img, index) => (
@@ -131,7 +101,7 @@ export function ProductDetailPage({ product, relatedProducts, onBack, onAddToCar
           <div>
             <div className="mb-3">
               <span className="inline-block px-3 py-1 bg-[#DFF5E1] text-[#1F5E3B] text-sm font-medium rounded-full">
-                {product.category}
+                {CATEGORY_LABELS[product.category]}
               </span>
             </div>
 
@@ -142,9 +112,7 @@ export function ProductDetailPage({ product, relatedProducts, onBack, onAddToCar
                 {[...Array(5)].map((_, i) => (
                   <Star
                     key={i}
-                    className={`w-5 h-5 ${
-                      i < product.rating ? 'fill-[#F4B942] text-[#F4B942]' : 'text-[#E5E7EB]'
-                    }`}
+                    className={`w-5 h-5 ${i < product.rating ? 'fill-[#F4B942] text-[#F4B942]' : 'text-[#E5E7EB]'}`}
                   />
                 ))}
               </div>
@@ -183,10 +151,7 @@ export function ProductDetailPage({ product, relatedProducts, onBack, onAddToCar
                   {product.variants.map((variant) => (
                     <button
                       key={variant.id}
-                      onClick={() => {
-                        setSelectedVariant(variant);
-                        setQuantity(1);
-                      }}
+                      onClick={() => { setSelectedVariant(variant); setQuantity(1); }}
                       className={`px-4 py-4 border-2 rounded-xl text-sm font-medium transition-all ${
                         selectedVariant?.id === variant.id
                           ? 'border-[#43A047] bg-[#DFF5E1] text-[#1F5E3B] shadow-md scale-105'
@@ -270,7 +235,6 @@ export function ProductDetailPage({ product, relatedProducts, onBack, onAddToCar
         {/* Product Details Sections */}
         <div className="border-t border-[#E5E7EB] pt-12">
           <div className="max-w-5xl mx-auto">
-            {/* Origin & Quality */}
             {(product.origin || product.harvest || product.packaging) && (
               <div className="mb-12 p-8 bg-gradient-to-br from-[#DFF5E1] to-[#FFF8E7] rounded-3xl">
                 <h2 className="text-2xl text-[#1F5E3B] font-semibold mb-6 flex items-center gap-3">
@@ -300,7 +264,6 @@ export function ProductDetailPage({ product, relatedProducts, onBack, onAddToCar
               </div>
             )}
 
-            {/* Full Description */}
             <div className="mb-12">
               <h2 className="text-2xl text-[#1F5E3B] font-semibold mb-6">Mô tả chi tiết sản phẩm</h2>
               <div className="prose prose-lg max-w-none">
@@ -331,7 +294,6 @@ export function ProductDetailPage({ product, relatedProducts, onBack, onAddToCar
               </div>
             </div>
 
-            {/* Storage Instructions */}
             <div className="mb-12 p-8 bg-[#FFF8E7] rounded-3xl">
               <h2 className="text-2xl text-[#1F5E3B] font-semibold mb-6 flex items-center gap-3">
                 <Package className="w-7 h-7 text-[#F4B942]" />
@@ -381,7 +343,6 @@ export function ProductDetailPage({ product, relatedProducts, onBack, onAddToCar
               </div>
             </div>
 
-            {/* Shipping & Return Policy */}
             <div className="mb-12 p-8 bg-[#F7FFF8] rounded-3xl border border-[#DFF5E1]">
               <h2 className="text-2xl text-[#1F5E3B] font-semibold mb-6">Chính sách giao hàng & đổi trả</h2>
               <div className="grid md:grid-cols-2 gap-8">
@@ -391,22 +352,17 @@ export function ProductDetailPage({ product, relatedProducts, onBack, onAddToCar
                     Giao hàng toàn quốc
                   </h3>
                   <ul className="space-y-3">
-                    <li className="text-base text-[#6B7280] flex items-start gap-2">
-                      <Check className="w-5 h-5 text-[#43A047] flex-shrink-0 mt-0.5" />
-                      <span>Miễn phí vận chuyển cho đơn hàng từ 499.000đ</span>
-                    </li>
-                    <li className="text-base text-[#6B7280] flex items-start gap-2">
-                      <Check className="w-5 h-5 text-[#43A047] flex-shrink-0 mt-0.5" />
-                      <span>Giao hàng nhanh: 1-3 ngày nội thành, 3-7 ngày tỉnh xa</span>
-                    </li>
-                    <li className="text-base text-[#6B7280] flex items-start gap-2">
-                      <Check className="w-5 h-5 text-[#43A047] flex-shrink-0 mt-0.5" />
-                      <span>Đóng gói cẩn thận, chống va đập, giữ tươi</span>
-                    </li>
-                    <li className="text-base text-[#6B7280] flex items-start gap-2">
-                      <Check className="w-5 h-5 text-[#43A047] flex-shrink-0 mt-0.5" />
-                      <span>Kiểm tra hàng trước khi thanh toán</span>
-                    </li>
+                    {[
+                      'Miễn phí vận chuyển cho đơn hàng từ 499.000đ',
+                      'Giao hàng nhanh: 1-3 ngày nội thành, 3-7 ngày tỉnh xa',
+                      'Đóng gói cẩn thận, chống va đập, giữ tươi',
+                      'Kiểm tra hàng trước khi thanh toán',
+                    ].map(text => (
+                      <li key={text} className="text-base text-[#6B7280] flex items-start gap-2">
+                        <Check className="w-5 h-5 text-[#43A047] flex-shrink-0 mt-0.5" />
+                        <span>{text}</span>
+                      </li>
+                    ))}
                   </ul>
                 </div>
                 <div>
@@ -415,22 +371,17 @@ export function ProductDetailPage({ product, relatedProducts, onBack, onAddToCar
                     Chính sách đổi trả
                   </h3>
                   <ul className="space-y-3">
-                    <li className="text-base text-[#6B7280] flex items-start gap-2">
-                      <Check className="w-5 h-5 text-[#43A047] flex-shrink-0 mt-0.5" />
-                      <span>Đổi trả trong 24h nếu sản phẩm bị lỗi hoặc hư hỏng</span>
-                    </li>
-                    <li className="text-base text-[#6B7280] flex items-start gap-2">
-                      <Check className="w-5 h-5 text-[#43A047] flex-shrink-0 mt-0.5" />
-                      <span>Hoàn tiền 100% nếu sản phẩm không đúng mô tả</span>
-                    </li>
-                    <li className="text-base text-[#6B7280] flex items-start gap-2">
-                      <Check className="w-5 h-5 text-[#43A047] flex-shrink-0 mt-0.5" />
-                      <span>Hỗ trợ đổi sản phẩm khác cùng giá trị</span>
-                    </li>
-                    <li className="text-base text-[#6B7280] flex items-start gap-2">
-                      <Check className="w-5 h-5 text-[#43A047] flex-shrink-0 mt-0.5" />
-                      <span>Liên hệ: 0866.918.366 để được hỗ trợ nhanh</span>
-                    </li>
+                    {[
+                      'Đổi trả trong 24h nếu sản phẩm bị lỗi hoặc hư hỏng',
+                      'Hoàn tiền 100% nếu sản phẩm không đúng mô tả',
+                      'Hỗ trợ đổi sản phẩm khác cùng giá trị',
+                      'Liên hệ: 0866.918.366 để được hỗ trợ nhanh',
+                    ].map(text => (
+                      <li key={text} className="text-base text-[#6B7280] flex items-start gap-2">
+                        <Check className="w-5 h-5 text-[#43A047] flex-shrink-0 mt-0.5" />
+                        <span>{text}</span>
+                      </li>
+                    ))}
                   </ul>
                 </div>
               </div>
@@ -444,10 +395,10 @@ export function ProductDetailPage({ product, relatedProducts, onBack, onAddToCar
             <h2 className="text-2xl text-[#1F5E3B] font-semibold mb-8">Sản phẩm liên quan</h2>
             <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-6">
               {relatedProducts.slice(0, 4).map((relatedProduct) => (
-                <div
+                <Link
                   key={relatedProduct.id}
-                  className="bg-white border border-[#E5E7EB] rounded-2xl overflow-hidden hover:shadow-xl transition-all cursor-pointer group"
-                  onClick={() => onProductClick(relatedProduct)}
+                  href={`/san-pham/${relatedProduct.slug}`}
+                  className="bg-white border border-[#E5E7EB] rounded-2xl overflow-hidden hover:shadow-xl transition-all group block"
                 >
                   <div className="relative aspect-square overflow-hidden">
                     <img
@@ -464,23 +415,14 @@ export function ProductDetailPage({ product, relatedProducts, onBack, onAddToCar
                   <div className="p-4">
                     <h3 className="text-lg text-[#1F5E3B] font-semibold mb-1 line-clamp-1">{relatedProduct.name}</h3>
                     <p className="text-sm text-[#6B7280] mb-3 line-clamp-2">{relatedProduct.description}</p>
-                    <div className="flex items-baseline gap-2 mb-3">
+                    <div className="flex items-baseline gap-2">
                       <span className="text-xl text-[#DC2626] font-semibold">
                         {relatedProduct.price.toLocaleString('vi-VN')}đ
                       </span>
                       <span className="text-xs text-[#6B7280]">/ {relatedProduct.unit}</span>
                     </div>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onAddToCart(relatedProduct);
-                      }}
-                      className="w-full px-4 py-2.5 bg-[#43A047] text-white rounded-full text-sm font-medium hover:bg-[#388E3C] transition-colors"
-                    >
-                      Thêm vào giỏ
-                    </button>
                   </div>
-                </div>
+                </Link>
               ))}
             </div>
           </div>
