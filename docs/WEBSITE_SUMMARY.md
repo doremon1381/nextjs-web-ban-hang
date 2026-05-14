@@ -1,115 +1,126 @@
-# Tóm tắt Website Nhãn Việt
+---
+version: 2.0.0
+updated: 2026-05-14
+status: active
+---
 
-> Cập nhật: 8/5/2026
+# Tóm tắt Website Nhãn Việt
 
 ---
 
 ## 🌐 Tổng quan
 
-**Website:** Nhãn Việt - E-commerce bán nhãn lồng tươi & nhãn sấy  
-**Mục đích:** Giới thiệu và bán sản phẩm nhãn tươi, nhãn sấy online  
-**Ngôn ngữ:** Tiếng Việt  
-**Trạng thái:** ✅ Đã hoàn thiện giao diện frontend
+**Website:** Nhãn Việt — E-commerce bán nhãn lồng tươi & nhãn sấy
+**Mục đích:** Giới thiệu và bán sản phẩm nhãn tươi, nhãn sấy online
+**Ngôn ngữ:** Tiếng Việt (có dấu)
+**Trạng thái:** ✅ Đã migrate sang Next.js 14 App Router; auth Supabase + admin surface đã hoạt động. Backend nghiệp vụ (ASP.NET) đang ở giai đoạn thiết kế.
 
 ---
 
 ## 🛠️ Công nghệ
 
-- **Framework:** React 18.3.1 + TypeScript
-- **Environment:** Figma Make (không phải Next.js truyền thống)
-- **CSS:** Tailwind CSS v4
+- **Framework:** Next.js 14 App Router (React 18.3.1 + TypeScript 5)
+- **Auth & DB:** Supabase (`@supabase/ssr` + `@supabase/supabase-js`) — Google OAuth + email/password
+- **CSS:** Tailwind CSS v4 (`@tailwindcss/postcss`)
+- **UI primitives:** Radix UI (shadcn/ui-style), tại `src/components/ui/`
 - **Icons:** Lucide React
-- **SEO:** react-helmet-async
-- **Package Manager:** pnpm
+- **SEO:** Next.js per-route `metadata` exports + JSON-LD trong `app/layout.tsx`
+- **Fonts:** `next/font/google` — Be Vietnam Pro
+- **Linting:** `next lint` (eslint-config-next)
+- **Package Manager:** npm (lockfile npm; `pnpm-workspace.yaml` là tàn dư, bỏ qua)
+
+Note: planned backend là **ASP.NET 8 Web API** (Clean Architecture + CQRS) — xem `docs/ASPNET_BACKEND_ARCHITECTURE.md`. Hiện tại data + auth chạy thẳng qua Supabase.
 
 ---
 
 ## 📄 Các trang đã có
 
-### 1. Trang chủ (Home)
-- ✅ Hero section với CTA
-- ✅ Sản phẩm nổi bật (4 sản phẩm)
-- ✅ Nhãn lồng tươi (4 sản phẩm + tab filter)
-- ✅ Nhãn sấy (4 sản phẩm)
-- ✅ Promotion banner với mã giảm giá
+### Storefront
 
-### 2. Trang liên hệ (Contact)
-- ✅ Form liên hệ
-- ✅ Thông tin liên hệ (phone, email, địa chỉ)
-- ✅ FAQ section
-- ✅ Google Maps placeholder
+| Route | Page |
+|---|---|
+| `/` | Trang chủ (hero, sản phẩm nổi bật, nhãn tươi, nhãn sấy, promotion) |
+| `/san-pham/nhan-tuoi` | Danh sách nhãn lồng tươi |
+| `/san-pham/nhan-say` | Danh sách nhãn sấy |
+| `/san-pham/[slug]` | Chi tiết sản phẩm (SSG qua `generateStaticParams`) — variants, gallery, mô tả đầy đủ |
+| `/lien-he` | Form liên hệ + thông tin + FAQ |
+| `/tai-khoan` | Hồ sơ cá nhân (view/edit) — yêu cầu đăng nhập |
+| `/tai-khoan/don-hang` | Lịch sử đơn hàng + filter theo trạng thái — yêu cầu đăng nhập |
+| `/auth/callback` | Supabase OAuth callback |
+| `/sitemap.xml`, `/robots.txt` | Generated qua `app/sitemap.ts`, `app/robots.ts` |
 
-### 3. Trang tài khoản (Account)
-- ✅ Thông tin cá nhân (view/edit mode)
-- ✅ Avatar upload placeholder
-- ✅ Đổi mật khẩu
-- ⚠️ Yêu cầu đăng nhập
-
-### 4. Trang đơn hàng (Orders)
-- ✅ Danh sách đơn hàng
-- ✅ Filter theo trạng thái (6 tabs)
-- ✅ Order detail modal
-- ✅ Empty state
-- ⚠️ Yêu cầu đăng nhập
+### Trang Admin (`/admin/*`, route group `(admin)`)
+- ✅ Server-side guard: redirect anon → `/auth/dang-nhap`, `notFound()` cho non-admin
+- ✅ Dashboard KPIs (đơn hôm nay, doanh thu 7 ngày, low stock, tin nhắn chưa đọc)
+- ✅ Quản lý sản phẩm (`/admin/san-pham`) — list, `moi/`, `[id]/`, có `ProductForm` + `ToggleActiveButton` + `actions.ts`
+- ✅ Quản lý đơn hàng (`/admin/don-hang`) — list theo status, detail, transition status + ghi `OrderStatusHistories`
+- ✅ Quản lý khách hàng (`/admin/khach-hang`) — list `app_users` + orders của họ (read-only)
+- ✅ Quản lý kho (`/admin/kho`) — variants + stock, low-stock highlight, inline edit
+- ✅ Tin nhắn liên hệ (`/admin/tin-nhan`) — inbox, toggle `IsRead`
+- ⚙️ `/admin/cai-dat` — placeholder, chưa wired
+- ⚠️ Yêu cầu role `Admin` trong `app_users.Role`
 
 ---
 
 ## 🧩 Components chính
 
-### Global Components
-- **Header** - Logo, navigation, phone, user menu, cart
-- **Footer** - 4 columns layout
-- **FloatingContactButtons** - Phone, Zalo, Messenger (sticky bottom-right)
+### Layout (`src/components/layout/`)
+- **Header / HeaderInteractive** — Server + Client split. Logo, nav, phone, user menu, cart badge.
+- **Footer** — 4 columns layout.
+
+### Cart (`src/components/cart/`)
+- **CartProvider** — React Context, persist vào `localStorage`.
+- **CartMerge** — reconcile guest cart với user cart sau khi đăng nhập.
 
 ### Product Components
-- **ProductCard** - Hiển thị sản phẩm với image, name, price, badge, rating, CTA
+- **ProductCard** — image, name, price, badge, rating, CTA.
+- **ProductDetailPage** — gallery, variants picker, mô tả, related info.
 
 ### Modal Components
-- **LoginModal** - 3 tabs: Đăng nhập, Đăng ký, Khách
-- **CartModal** - 3 steps: Giỏ hàng → Thanh toán → Thành công
+- **LoginModal** — 3 tabs: Đăng nhập, Đăng ký, Khách (Google OAuth + email/password).
+- **CartModal** — 3 steps: Giỏ hàng → Thanh toán → Thành công.
 
-### Page Components
-- **ContactPage** - Form + Info cards + FAQ
-- **AccountPage** - Profile management
-- **OrdersPage** - Order history + filters
+### Page Components (legacy, dùng trong route tương ứng)
+- **AccountPage**, **OrdersPage**, **ContactPage**, **FarmPage**
+
+### Admin Components (`src/components/admin/`)
+- **AdminSidebar / AdminTopbar** — shell `/admin/*`.
+- **DataTable** — sortable/paginated wrapper, search slot.
+- **StatusBadge** — re-use palette từ `OrdersPage`.
+- **StatCard** — KPI tile cho dashboard.
+
+### Global
+- **FloatingContactButtons** — Phone, Zalo, Messenger (sticky bottom-right).
 
 ---
 
 ## ✨ Tính năng đã triển khai
 
 ### Shopping Features
-- ✅ Thêm sản phẩm vào giỏ hàng
-- ✅ Xem giỏ hàng
-- ✅ Tăng/giảm số lượng
-- ✅ Xóa sản phẩm khỏi giỏ
+- ✅ Thêm sản phẩm vào giỏ hàng (persist `localStorage`)
+- ✅ Variants picker (nhiều size/dung lượng mỗi sản phẩm)
+- ✅ Xem giỏ hàng, tăng/giảm, xóa
 - ✅ Checkout form (COD / Chuyển khoản)
 - ✅ Tính tổng tiền + phí ship
 - ✅ Success screen
 
 ### User Features
-- ✅ Đăng nhập / Đăng ký
-- ✅ Mua với tư cách khách
-- ✅ User menu dropdown
-- ✅ Đăng xuất
-- ✅ Xem/Sửa thông tin cá nhân
-- ✅ Xem lịch sử đơn hàng
-- ✅ Filter đơn hàng theo trạng thái
+- ✅ Đăng nhập / Đăng ký (Supabase: Google OAuth + email/password)
+- ✅ Mua với tư cách khách (guest cart auto-merge khi đăng nhập)
+- ✅ User menu dropdown + Đăng xuất
+- ✅ Xem/Sửa hồ sơ
+- ✅ Lịch sử đơn hàng + filter theo trạng thái
 
 ### Navigation Features
-- ✅ State-based routing (không dùng URL)
-- ✅ Smooth scroll to section
-- ✅ Mobile hamburger menu
-- ✅ Active state cho menu items
+- ✅ **URL-based routing** (Next.js App Router) — mỗi page có URL riêng, crawlable
+- ✅ `next/link` cho client-side navigation
+- ✅ Mobile hamburger menu, sticky header
 - ✅ Breadcrumb navigation
 
 ### UI/UX Features
-- ✅ Tab filters (Nhãn tươi section)
-- ✅ Modal/Dialog overlays
-- ✅ Cart badge counter
-- ✅ Mobile responsive
-- ✅ Hover effects
-- ✅ Loading states placeholder
-- ✅ Empty states
+- ✅ Tab filters, modals/dialogs, cart badge counter
+- ✅ Mobile responsive (mobile-first)
+- ✅ Hover effects, empty states, loading states
 
 ---
 
@@ -125,248 +136,220 @@
 - **Grays:** #1F2937, #6B7280, #E5E7EB, #FAFAFA
 
 ### Typography (6 sizes)
-- `text-4xl` - Hero headings (36-48px)
-- `text-2xl` - Section headings (24px)
-- `text-lg` - Lead text (18px)
-- `text-base` - Body text (16px)
-- `text-sm` - Small text/buttons (14px)
-- `text-xs` - Captions/units (12px)
+- `text-4xl` — Hero (36–48px)
+- `text-2xl` — Section (24px)
+- `text-lg` — Lead (18px)
+- `text-base` — Body (16px)
+- `text-sm` — Small/buttons (14px)
+- `text-xs` — Captions/units (12px)
 
-### Components Styles
-- Buttons: Rounded-full, primary/secondary variants
-- Cards: Rounded-2xl, border, hover:shadow-xl
-- Badges: Rounded-full, yellow/green variants
-- Inputs: Border, rounded-lg
-- Modals: Rounded-3xl, shadow-2xl
-
-### Files
-- ✅ `DESIGN_TOKENS.md` - Tài liệu chi tiết
-- ✅ `COLOR_CHEATSHEET.md` - Quick reference
-- ✅ `src/lib/design-tokens.ts` - TypeScript constants
+### Tokens
+- `src/lib/design-tokens.ts` — TypeScript constants + `tw.*` Tailwind bundles (e.g. `tw.button.primary`).
+- `rule.md` (root) — canonical brand brief.
 
 ---
 
-## 🔍 SEO đã có
+## 🔍 SEO
 
-### Meta Tags
-- ✅ Title tag (tối ưu keywords)
-- ✅ Meta description
-- ✅ Meta keywords
-- ✅ Open Graph (Facebook)
-- ✅ Twitter Card
-- ✅ Viewport (mobile)
-- ✅ Lang="vi"
+### Meta
+- ✅ Per-route `metadata` exports (title template `%s | Nhãn Việt`, description, keywords)
+- ✅ Open Graph + Twitter Card
+- ✅ `lang="vi"`, viewport, `metadataBase`
 
 ### Structured Data
-- ✅ Organization schema
-- ✅ LocalBusiness schema
-- ✅ ContactPoint schema
+- ✅ `Organization` schema (root layout)
+- ✅ `LocalBusiness` schema (root layout)
+- ✅ ContactPoint
+- ⚠️ Product JSON-LD per-product — nằm trong plan, chưa apply toàn bộ
 
-### Semantic HTML
-- ✅ Proper heading hierarchy (h1 → h2)
-- ✅ `<main>`, `<nav>`, `<section>`, `<article>`, `<footer>`, `<address>`
-- ✅ ARIA labels
-- ✅ Alt text cho images
+### Crawl
+- ✅ `app/sitemap.ts`, `app/robots.ts` generated
+- ✅ Semantic HTML, ARIA labels, alt text Vietnamese
 
 ---
 
 ## 📱 Responsive
 
-- ✅ Mobile-first approach
-- ✅ Desktop: max-w-7xl container (1440px)
-- ✅ Grid responsive: 4 cols → 2 cols → 1 col
-- ✅ Mobile menu (hamburger)
-- ✅ Sticky header
-- ✅ Touch-friendly buttons
-- ⚠️ Chưa có tablet breakpoint riêng
+- ✅ Mobile-first
+- ✅ Desktop: max-w-7xl (1440px)
+- ✅ Grid: 4 cols → 2 cols → 1 col
+- ✅ Mobile hamburger, sticky header, touch-friendly
 
 ---
 
-## 📦 Data Model (Mock)
+## 📦 Data Model
+
+Nguồn duy nhất: **`src/lib/data/products.ts`**. Không inline products ở chỗ khác.
 
 ### Product
-```typescript
+```ts
 {
   id: string
+  slug: string
   name: string
   description: string
   price: number
   oldPrice?: number
   unit: string
   image: string
+  images?: string[]
+  category: 'fresh' | 'dried' | 'combo'
   badge?: string
   rating: number
+  fullDescription?: string
+  origin?: string
+  harvest?: string
+  packaging?: string
+  storage?: string
+  shipping?: string
+  variants: ProductVariant[]
+  featured?: boolean
 }
 ```
 
-### CartItem
-```typescript
-{
-  id: string
-  name: string
-  price: number
-  quantity: number
-  image: string
-  unit: string
-}
+### ProductVariant
+```ts
+{ id: string; name: string; price: number; oldPrice?: number; stock: number }
 ```
 
-### User
-```typescript
-{
-  name: string
-  email: string
-  phone?: string
-  address?: string
-}
-```
-
-### Order (Mock data trong OrdersPage)
-```typescript
-{
-  id: string
-  date: string
-  status: 'pending' | 'confirmed' | 'shipping' | 'completed' | 'cancelled'
-  items: OrderItem[]
-  total: number
-  customer: CustomerInfo
-  payment: 'cod' | 'transfer'
-}
-```
-
----
-
-## 📊 Dữ liệu hiện tại
-
-### Sản phẩm
-- **Tổng:** 12 sản phẩm mock
-- **Featured:** 4 sản phẩm
-- **Nhãn tươi:** 4 sản phẩm
-- **Nhãn sấy:** 4 sản phẩm
-- **Nguồn ảnh:** Unsplash
-
-### Trạng thái
-- ✅ Mock data hardcoded
-- ❌ Chưa kết nối backend/API
-- ❌ Chưa có database
-- ❌ Chưa có real authentication
+### Supabase tables (PascalCase, quoted identifiers)
+`app_users`, `Products`, `ProductVariants`, `Orders`, `OrderItems`, `OrderStatusHistories`, `Carts`, `CartItems`, `ContactMessages`. Schema notes + recommended `Orders.PaymentStatus` add: xem `docs/ADMIN_PLAN.md`.
 
 ---
 
 ## ⚠️ Chưa có / Cần làm thêm
 
-### Backend
-- ❌ API endpoints
-- ❌ Database (Supabase/PostgreSQL)
-- ❌ Real authentication (JWT/OAuth)
+### Backend nghiệp vụ (ASP.NET 8)
+- 🟡 Đang ở giai đoạn thiết kế (Clean Architecture + CQRS) — `docs/ASPNET_BACKEND_ARCHITECTURE.md`
+- ❌ Chưa có API endpoints; hiện tại frontend gọi thẳng Supabase
 - ❌ Payment gateway integration
-- ❌ Order management system
-- ❌ Email notifications
-- ❌ SMS notifications
+- ❌ Email / SMS notifications
 
 ### Frontend
-- ❌ Real-time inventory
-- ❌ Product search
-- ❌ Product filter advanced
-- ❌ Product pagination
-- ❌ Product detail page (riêng)
-- ❌ Wishlist/Favorites
+- ❌ Product search (full-text)
+- ❌ Product filter nâng cao (giá, rating, origin)
+- ❌ Pagination cho danh sách sản phẩm
+- ❌ Wishlist / Favorites
 - ❌ Product reviews/ratings input
-- ❌ Image zoom/gallery
-- ❌ Related products
-- ❌ Recently viewed
+- ❌ Image zoom / gallery lightbox
+- ❌ Related products, Recently viewed
+- 🟡 Phase 5 (image optimization với `next/image` + Supabase Storage) đang là việc tiếp theo
 
 ### Admin
-- ❌ Admin dashboard
-- ❌ Product management
-- ❌ Order management
-- ❌ Customer management
-- ❌ Analytics/Reports
-- ❌ Inventory tracking
+- ✅ Admin dashboard, products CRUD, orders, customers, inventory, contact messages
+- ❌ Analytics/Reports nâng cao (revenue trends, top products…)
+- ❌ Audit log (`AuditLogs` table) — defer cho đến khi có >1 admin
+- ❌ Discount/Voucher engine
+- ❌ Settings page (`/admin/cai-dat`)
 
 ### Other
 - ❌ Blog/News section
 - ❌ Testimonials/Reviews section
-- ❌ About Us page (đã có FarmPage nhưng đã xóa)
 - ❌ Loyalty program
-- ❌ Discount/Voucher system (chỉ có UI)
 - ❌ Multi-language support
-- ❌ Dark mode
+- ❌ Dark mode (next-themes có trong deps nhưng chưa bật)
 
 ---
 
-## 🚀 Migration Plan
+## 🚀 Migration Status
 
-Đã có file **NEXTJS_MIGRATION_PLAN.md** (70+ trang) với:
-- 7 phases migration
-- Timeline: 5 weeks
-- App Router structure
-- Component mapping
-- SEO strategy
-- Deployment guide
+Xem `docs/NEXTJS_MIGRATION_PLAN.md` — nguồn chân lý về định hướng.
+
+- ✅ **Phase 0** — Extract products data, prune unused deps
+- ✅ **Phase 1** — Next.js scaffold (App Router)
+- ✅ **Phase 2** — Decompose `App.tsx` → routes, CartProvider, Header/Footer (~21 SSG pages)
+- ✅ **Phase 3** — Per-route metadata, sitemap, robots
+- ✅ **Phase 4** — Supabase auth (Google OAuth + email/password) + middleware session
+- 🟡 **Phase 5** — Image optimization (`next/image` + Supabase Storage) — đang làm
+- ⏭️ Phase 6+ — Per-product JSON-LD, performance pass, deployment
 
 ---
 
 ## 📁 Cấu trúc File chính
 
 ```
-/workspaces/default/code/
+nextjs-web-ban-hang/
+├── middleware.ts                # Supabase session refresh
+├── next.config.mjs
 ├── src/
 │   ├── app/
-│   │   ├── App.tsx                    # Main app component
-│   │   └── components/
-│   │       ├── AccountPage.tsx
-│   │       ├── CartModal.tsx
-│   │       ├── ContactPage.tsx
-│   │       ├── FloatingContactButtons.tsx
-│   │       ├── LoginModal.tsx
-│   │       ├── OrdersPage.tsx
-│   │       └── ProductCard.tsx
+│   │   ├── layout.tsx           # Root layout (fonts, metadata, JSON-LD, providers)
+│   │   ├── page.tsx             # Home
+│   │   ├── lien-he/
+│   │   ├── san-pham/
+│   │   │   ├── nhan-tuoi/page.tsx
+│   │   │   ├── nhan-say/page.tsx
+│   │   │   └── [slug]/page.tsx
+│   │   ├── tai-khoan/{page.tsx, don-hang/}
+│   │   ├── auth/callback/
+│   │   ├── (admin)/admin/       # Admin route group
+│   │   │   ├── layout.tsx       # Server-side guard
+│   │   │   ├── page.tsx         # Dashboard
+│   │   │   ├── san-pham/        # CRUD + actions.ts
+│   │   │   ├── don-hang/        # list + [id]/ + actions.ts
+│   │   │   ├── khach-hang/
+│   │   │   ├── kho/
+│   │   │   ├── tin-nhan/
+│   │   │   └── cai-dat/
+│   │   ├── sitemap.ts
+│   │   └── robots.ts
+│   ├── components/
+│   │   ├── layout/{Header,HeaderInteractive,Footer}.tsx
+│   │   ├── cart/{CartProvider,CartMerge}.tsx
+│   │   ├── admin/{AdminSidebar,AdminTopbar,DataTable,StatCard,StatusBadge}.tsx
+│   │   ├── ui/                  # shadcn/ui primitives
+│   │   ├── seo/
+│   │   ├── ProductCard.tsx, ProductDetailPage.tsx
+│   │   ├── CartModal.tsx, LoginModal.tsx
+│   │   ├── AccountPage.tsx, OrdersPage.tsx, ContactPage.tsx, FarmPage.tsx
+│   │   └── FloatingContactButtons.tsx
 │   ├── lib/
-│   │   ├── design-tokens.ts           # Design system constants
-│   │   └── utils.ts                   # cn() helper
+│   │   ├── data/products.ts     # Single source of truth for products
+│   │   ├── supabase/{client,server,middleware}.ts
+│   │   ├── api/{client,server}.ts
+│   │   ├── design-tokens.ts
+│   │   └── utils.ts
 │   └── styles/
-│       ├── theme.css                  # CSS variables
-│       └── fonts.css                  # Font imports
-├── DESIGN_TOKENS.md                   # Design reference
-├── COLOR_CHEATSHEET.md                # Quick copy-paste
-├── FIGMA_FRAMES_ANALYSIS.md           # Frames/sections analysis
-├── TYPOGRAPHY_SYSTEM.md               # Typography guide
-├── NEXTJS_MIGRATION_PLAN.md           # Migration guide
-└── WEBSITE_SUMMARY.md                 # This file
+└── docs/
+    ├── NEXTJS_MIGRATION_PLAN.md
+    ├── ADMIN_PLAN.md
+    ├── ASPNET_BACKEND_ARCHITECTURE.md, CLEAN_ARCHITECTURE.md
+    ├── SEO_ANALYSIS.md
+    ├── PRODUCT_DETAIL_GUIDE.md, PRODUCT_VARIANTS_IMPLEMENTATION.md
+    └── WEBSITE_SUMMARY.md       # This file
 ```
 
 ---
 
 ## 🎯 Điểm mạnh
 
-1. ✅ **Giao diện đẹp** - Design system nhất quán, màu sắc hài hòa
-2. ✅ **SEO tốt** - Meta tags đầy đủ, semantic HTML, structured data
-3. ✅ **Responsive** - Mobile-friendly
-4. ✅ **UX tốt** - Smooth transitions, clear CTAs, easy navigation
-5. ✅ **Code sạch** - TypeScript, component-based, reusable
-6. ✅ **Documentation đầy đủ** - Design tokens, migration plan, analysis
+1. ✅ **URL-based routing** — mỗi page crawlable, sitemap đầy đủ
+2. ✅ **SSG + Server Components** — render nhanh, SEO tốt
+3. ✅ **Auth thật** — Supabase + middleware session refresh
+4. ✅ **Admin surface** — đủ để vận hành đơn hàng + sản phẩm
+5. ✅ **Design system nhất quán** — tokens + Tailwind v4
+6. ✅ **TypeScript** — types đầy đủ cho `Product` / `ProductVariant`
+7. ✅ **Documentation** — migration plan, admin plan, SEO audit, backend architecture
 
 ---
 
-## 🎯 Điểm yếu / Hạn chế
+## 🎯 Hạn chế / Đang xử lý
 
-1. ❌ **Không có backend** - Tất cả data đều mock
-2. ❌ **Không lưu state** - Refresh là mất hết data
-3. ❌ **Không có real auth** - Chỉ lưu trong memory
-4. ❌ **Không có payment** - Chỉ có UI checkout
-5. ❌ **State-based routing** - Không có URL riêng cho từng page
-6. ❌ **Không có product detail page** - Click vào product chỉ add to cart
+1. 🟡 **Images chưa optimize** — Phase 5 (`next/image` + Supabase Storage) đang làm
+2. ❌ **Chưa có payment gateway** — checkout vẫn dừng ở COD / Chuyển khoản thủ công
+3. ❌ **Backend nghiệp vụ (.NET)** — mới ở giai đoạn thiết kế
+4. ❌ **Chưa có product search / advanced filter / pagination**
+5. ⚠️ **Schema gaps** — `Orders.PaymentStatus`, `AuditLogs` (xem `ADMIN_PLAN.md`)
 
 ---
 
-## 📝 Ghi chú
+## 📝 Ghi chú vận hành
 
-- **Environment:** Figma Make (không phải standard Vite/Next.js)
-- **Entrypoint:** `__figma__entrypoint__.ts` (auto-generated, không được edit)
-- **No index.html** - Không có file index.html truyền thống
-- **No vite build** - Không chạy `vite build` hay `npm run build`
-- **Dev server** - Đã chạy sẵn, không cần start manually
+- **Dev:** `npm run dev`
+- **Build:** `npm run build` (emits ~21 SSG pages)
+- **Lint:** `npm run lint`
+- **Typecheck:** `npx tsc --noEmit`
+- **Env:** `.env.local` với `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `NEXT_PUBLIC_SITE_URL`
 
 ---
 
@@ -379,4 +362,12 @@
 
 ---
 
-**Tóm lại:** Website đã hoàn thiện giao diện frontend với đầy đủ tính năng UI/UX cơ bản cho e-commerce. Cần bổ sung backend, database, và real authentication để đưa vào production.
+**Tóm lại:** Migration Vite → Next.js 14 App Router đã hoàn tất qua Phase 4. Storefront chạy với URL-based routing + per-route metadata + Supabase auth. Admin surface đã ship. Việc tiếp theo: optimize images (Phase 5), bổ sung product JSON-LD, và lên kế hoạch backend ASP.NET cho nghiệp vụ.
+
+---
+
+## Changelog
+
+- **2.0.0** (2026-05-14) — Major rewrite to reflect Next.js 14 App Router reality: replaced "React 18 + Figma Make" stack with Next.js + Supabase + middleware; rewrote routing section as real URL table; flipped state-based routing claim; added migration phase status, server-action mutation pattern, single-source product data module; updated file tree to actual repo layout.
+- **1.1.0** (2026-05-14) — Added Admin section (route group `(admin)`, dashboard, products/orders/customers/inventory/messages); flipped "Admin" checklist from ❌ → ✅; backfilled frontmatter (replaces inline "Cập nhật: 8/5/2026" note).
+- **1.0.0** (2026-05-08) — Initial website summary covering frontend pages, components, design system, SEO, data model, and gaps.
