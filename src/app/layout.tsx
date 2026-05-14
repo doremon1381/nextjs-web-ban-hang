@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import { Be_Vietnam_Pro } from 'next/font/google';
 import './globals.css';
 import { CartProvider } from '@/components/cart/CartProvider';
+import { CartMerge } from '@/components/cart/CartMerge';
 import { Header } from '@/components/layout/Header';
 import { Footer } from '@/components/layout/Footer';
 import { CartModal } from '@/components/CartModal';
@@ -100,6 +101,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
           dangerouslySetInnerHTML={{ __html: JSON.stringify(localBusinessJsonLd) }}
         />
         <CartProvider>
+          <CartMerge />
           <Header />
           <main>{children}</main>
           <Footer />
