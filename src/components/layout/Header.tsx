@@ -5,6 +5,7 @@ import { useState, useRef, useEffect } from 'react';
 import { ShoppingCart, User, Phone, Leaf, Package, Menu, X } from 'lucide-react';
 import { useCart } from '@/components/cart/CartProvider';
 import { LoginModal } from '@/components/LoginModal';
+import { createClient } from '@/lib/supabase/client';
 
 export function Header() {
   const pathname = usePathname();
@@ -14,6 +15,35 @@ export function Header() {
   const [user, setUser] = useState<{ name: string; email: string } | null>(null);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const userMenuRef = useRef<HTMLDivElement>(null);
+
+  // Initialise user from Supabase session on mount and keep it in sync.
+  useEffect(() => {
+    const supabase = createClient();
+
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user) {
+        const u = session.user;
+        setUser({
+          name: u.user_metadata?.full_name || u.user_metadata?.name || u.email || 'Người dùng',
+          email: u.email ?? '',
+        });
+      }
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.user) {
+        const u = session.user;
+        setUser({
+          name: u.user_metadata?.full_name || u.user_metadata?.name || u.email || 'Người dùng',
+          email: u.email ?? '',
+        });
+      } else {
+        setUser(null);
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -32,7 +62,9 @@ export function Header() {
     setIsLoginOpen(false);
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    const supabase = createClient();
+    await supabase.auth.signOut();
     setUser(null);
     setShowUserMenu(false);
   };
